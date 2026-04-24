@@ -3,6 +3,7 @@
 namespace Morcen\Probe;
 
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\ServiceProvider;
 use Morcen\Probe\Console\ClearCommand;
 use Morcen\Probe\Console\InstallCommand;
@@ -78,6 +79,10 @@ class ProbeServiceProvider extends ServiceProvider
 
     private function bootWatchers(): void
     {
+        if (! Schema::hasTable('probe_entries')) {
+            return;
+        }
+
         $enabled = config('probe.watchers', []);
         $storage = $this->app->make(StorageDriverInterface::class);
 
