@@ -79,7 +79,11 @@ class ProbeServiceProvider extends ServiceProvider
 
     private function bootWatchers(): void
     {
-        if (! Schema::hasTable('probe_entries')) {
+        try {
+            if (! Schema::hasTable('probe_entries')) {
+                return;
+            }
+        } catch (\Throwable) {
             return;
         }
 
