@@ -16,4 +16,13 @@ class TestCase extends BaseTestCase
             ProbeServiceProvider::class,
         ];
     }
+
+    protected function defineEnvironment($app): void
+    {
+        // Pin the suite to Testbench's in-memory sqlite connection. A
+        // DB_CONNECTION exported in the developer's shell wins over
+        // phpunit.xml <env> values ($_SERVER beats $_ENV in phpdotenv),
+        // so the config must be set directly.
+        $app['config']->set('database.default', 'testing');
+    }
 }
