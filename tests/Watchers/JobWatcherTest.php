@@ -3,6 +3,8 @@
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Support\Facades\DB;
+use Morcen\Probe\Storage\DatabaseDriver;
 use Morcen\Probe\Storage\StorageDriverInterface;
 use Morcen\Probe\Watchers\JobWatcher;
 
@@ -60,4 +62,42 @@ it('records nothing when sampling rate is 0', function () {
 
     $job = makeFakeJob('job-3');
     event(new JobProcessing('redis', $job));
+});
+
+it('updates the stored content to completed via a parameterized query, preserving existing fields', function () {
+    $watcher = new JobWatcher(new DatabaseDriver());
+    $watcher->register();
+
+    $job = makeFakeJob('job-4');
+    event(new JobProcessing('redis', $job));
+    event(new JobProcessed('redis', $job));
+
+    $row     = DB::table('probe_entries')->where('type', 'jobs')->first();
+    $content = json_decode($row->content, true);
+
+    expect($content['status'])->toBe('completed')
+        ->and($content['duration_ms'])->toBeFloat()
+        ->and($content['name'])->toBe('App\\Jobs\\SendEmail')
+        ->and($row->tags)->toBe('job,default,completed');
+});
+
+it('safely stores an exception message containing quotes and SQL-breaking characters on JobFailed', function () {
+    $watcher = new JobWatcher(new DatabaseDriver());
+    $watcher->register();
+
+    $job = makeFakeJob('job-5');
+    event(new JobProcessing('redis', $job));
+
+    $malicious = "'); DROP TABLE probe_entries; --";
+    $exception = new Exception($malicious);
+
+    event(new JobFailed('redis', $job, $exception));
+
+    $row     = DB::table('probe_entries')->where('type', 'jobs')->first();
+    $content = json_decode($row->content, true);
+
+    expect($content['status'])->toBe('failed')
+        ->and($content['exception'])->toBe($malicious);
+
+    expect(DB::table('probe_entries')->count())->toBe(1);
 });
