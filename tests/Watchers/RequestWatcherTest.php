@@ -77,6 +77,61 @@ it('redacts authorization header', function () {
     expect($captured['content']['headers']['authorization'])->toBe(['[redacted]']);
 });
 
+it('redacts sensitive fields in JSON request and response bodies', function () {
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new RequestWatcher($storage);
+    $watcher->register();
+
+    $payload = json_encode([
+        'email'    => 'user@example.com',
+        'password' => 'super-secret',
+        'nested'   => ['api_key' => 'abc123'],
+    ]);
+
+    $request = Request::create('/login', 'POST', [], [], [], [
+        'CONTENT_TYPE' => 'application/json',
+    ], $payload);
+    $response = new Response(json_encode(['token' => 'issued-token', 'ok' => true]), 200);
+
+    event(new RequestHandled($request, $response));
+
+    $decodedPayload  = json_decode($captured['content']['payload'], true);
+    $decodedResponse = json_decode($captured['content']['response'], true);
+
+    expect($decodedPayload['email'])->toBe('user@example.com')
+        ->and($decodedPayload['password'])->toBe('[redacted]')
+        ->and($decodedPayload['nested']['api_key'])->toBe('[redacted]')
+        ->and($decodedResponse['token'])->toBe('[redacted]')
+        ->and($decodedResponse['ok'])->toBeTrue();
+});
+
+it('leaves non-JSON bodies untouched', function () {
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new RequestWatcher($storage);
+    $watcher->register();
+
+    $request  = Request::create('/hello', 'GET');
+    $response = new Response('plain text body', 200);
+
+    event(new RequestHandled($request, $response));
+
+    expect($captured['content']['response'])->toBe('plain text body');
+});
+
 it('records nothing when sampling rate is 0', function () {
     config()->set('probe.sampling_rate', 0.0);
 
