@@ -1,17 +1,21 @@
 <?php
 
-use Illuminate\Cache\Events\CacheHit;
-use Illuminate\Cache\Events\CacheMissed;
-use Illuminate\Cache\Events\KeyForgotten;
-use Illuminate\Cache\Events\KeyWritten;
+use Illuminate\Support\Facades\Cache;
 use Morcen\Probe\Storage\StorageDriverInterface;
 use Morcen\Probe\Watchers\CacheWatcher;
 
 beforeEach(function () {
     config()->set('probe.sampling_rate', 1.0);
+    config()->set('cache.default', 'array');
 });
 
+// Cache events are dispatched by the real repository rather than constructed
+// by hand: their constructor signatures differ between Laravel 10 and 11+
+// (11 added $storeName as the first argument).
+
 it('records a cache hit', function () {
+    Cache::put('user.1', 'value', 60);
+
     $captured = null;
 
     $storage = Mockery::mock(StorageDriverInterface::class);
@@ -23,7 +27,7 @@ it('records a cache hit', function () {
     $watcher = new CacheWatcher($storage);
     $watcher->register();
 
-    event(new CacheHit('default', 'user.1', 'value'));
+    Cache::get('user.1');
 
     expect($captured['content']['event'])->toBe('hit')
         ->and($captured['content']['key'])->toBe('user.1')
@@ -42,7 +46,7 @@ it('records a cache miss', function () {
     $watcher = new CacheWatcher($storage);
     $watcher->register();
 
-    event(new CacheMissed('default', 'missing.key'));
+    Cache::get('missing.key');
 
     expect($captured['content']['event'])->toBe('miss');
 });
@@ -59,13 +63,15 @@ it('records a key write', function () {
     $watcher = new CacheWatcher($storage);
     $watcher->register();
 
-    event(new KeyWritten('default', 'user.1', 'value', 3600));
+    Cache::put('user.1', 'value', 3600);
 
     expect($captured['content']['event'])->toBe('write')
         ->and($captured['content']['seconds'])->toBe(3600);
 });
 
 it('records a key forgotten', function () {
+    Cache::put('user.1', 'value', 60);
+
     $captured = null;
 
     $storage = Mockery::mock(StorageDriverInterface::class);
@@ -77,7 +83,7 @@ it('records a key forgotten', function () {
     $watcher = new CacheWatcher($storage);
     $watcher->register();
 
-    event(new KeyForgotten('default', 'user.1'));
+    Cache::forget('user.1');
 
     expect($captured['content']['event'])->toBe('forget');
 });
