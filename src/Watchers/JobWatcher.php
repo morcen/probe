@@ -106,15 +106,21 @@ class JobWatcher extends Watcher
         ?string $exception,
         string $queue
     ): void {
+        $raw     = \Illuminate\Support\Facades\DB::table('probe_entries')->where('id', $entryId)->value('content');
+        $content = json_decode($raw ?? '', true) ?? [];
+
+        $content['status']      = $status;
+        $content['duration_ms'] = $durationMs;
+
+        if ($exception !== null) {
+            $content['exception'] = $exception;
+        }
+
         \Illuminate\Support\Facades\DB::table('probe_entries')
             ->where('id', $entryId)
             ->update([
-                'tags' => implode(',', array_filter(['job', $queue, $status])),
-                'content' => \Illuminate\Support\Facades\DB::raw(
-                    "JSON_SET(content, '$.status', '{$status}', '$.duration_ms', {$durationMs}"
-                    . ($exception !== null ? ", '$.exception', '" . addslashes($exception) . "'" : '')
-                    . ')'
-                ),
+                'tags'    => implode(',', array_filter(['job', $queue, $status])),
+                'content' => json_encode($content),
             ]);
     }
 

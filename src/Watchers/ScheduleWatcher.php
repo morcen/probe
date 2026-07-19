@@ -93,15 +93,21 @@ class ScheduleWatcher extends Watcher
         ?string $output,
         string $command
     ): void {
+        $raw     = \Illuminate\Support\Facades\DB::table('probe_entries')->where('id', $entryId)->value('content');
+        $content = json_decode($raw ?? '', true) ?? [];
+
+        $content['status']      = $status;
+        $content['duration_ms'] = $durationMs;
+
+        if ($output !== null) {
+            $content['output'] = $output;
+        }
+
         \Illuminate\Support\Facades\DB::table('probe_entries')
             ->where('id', $entryId)
             ->update([
-                'tags' => implode(',', ['schedule', $status]),
-                'content' => \Illuminate\Support\Facades\DB::raw(
-                    "JSON_SET(content, '$.status', '{$status}', '$.duration_ms', {$durationMs}"
-                    . ($output !== null ? ", '$.output', '" . addslashes($output) . "'" : '')
-                    . ')'
-                ),
+                'tags'    => implode(',', ['schedule', $status]),
+                'content' => json_encode($content),
             ]);
     }
 
