@@ -87,3 +87,35 @@ it('records a key forgotten', function () {
 
     expect($captured['content']['event'])->toBe('forget');
 });
+
+it('does not let a storage failure crash the host application', function () {
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andThrow(new \RuntimeException('storage unavailable'));
+
+    $watcher = new CacheWatcher($storage);
+    $watcher->register();
+
+    Cache::get('user.1');
+
+    expect(true)->toBeTrue();
+});
+
+it('resets the recording guard after a storage failure so later entries are still recorded', function () {
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andThrow(new \RuntimeException('storage unavailable'));
+
+    $watcher = new CacheWatcher($storage);
+    $watcher->register();
+
+    Cache::get('user.1');
+
+    $captured = null;
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    Cache::get('user.2');
+
+    expect($captured['content']['key'])->toBe('user.2');
+});

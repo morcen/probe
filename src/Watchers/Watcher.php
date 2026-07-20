@@ -44,12 +44,17 @@ abstract class Watcher
         self::$recording = true;
 
         try {
-            $id = $this->storage->store([
-                'type'        => $type,
-                'content'     => $content,
-                'tags'        => implode(',', array_filter(array_unique($tags))),
-                'family_hash' => $familyHash,
-            ]);
+            try {
+                $id = $this->storage->store([
+                    'type'        => $type,
+                    'content'     => $content,
+                    'tags'        => implode(',', array_filter(array_unique($tags))),
+                    'family_hash' => $familyHash,
+                ]);
+            } catch (\Throwable) {
+                // Storage failures must never crash the host application.
+                return 0;
+            }
 
             $this->alert($type, $content, $tags);
         } finally {
