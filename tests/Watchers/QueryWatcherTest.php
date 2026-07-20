@@ -54,6 +54,46 @@ it('does not tag a fast query as slow', function () {
     expect($captured['tags'])->not->toContain('slow');
 });
 
+it('redacts bound values for sensitive columns', function () {
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new QueryWatcher($storage);
+    $watcher->register();
+
+    event(new QueryExecuted(
+        'update users set password = ?, remember_token = ? where id = ?',
+        ['new-hash', 'secret-token-value', 42],
+        5.0,
+        app('db')->connection()
+    ));
+
+    expect($captured['content']['sql'])
+        ->toBe("update users set password = '[redacted]', remember_token = '[redacted]' where id = 42");
+});
+
+it('does not redact non-sensitive bound values', function () {
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new QueryWatcher($storage);
+    $watcher->register();
+
+    event(new QueryExecuted('select * from users where id = ?', [1], 10.5, app('db')->connection()));
+
+    expect($captured['content']['sql'])->toBe('select * from users where id = 1');
+});
+
 it('detects n+1 queries and tags entries', function () {
     $ids = [];
 

@@ -135,4 +135,33 @@ return [
 
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Redaction
+    |--------------------------------------------------------------------------
+    | Captured request/response bodies and interpolated query bindings can
+    | carry sensitive values (passwords, tokens, etc). Any field/column
+    | whose name *contains* one of these substrings (case-insensitive) is
+    | replaced with '[redacted]' before being stored.
+    */
+
+    'redact' => [
+        // Request/response body fields (JSON payloads) to redact.
+        'body_fields'    => [
+            'password',
+            'secret',
+            'token',
+            'api_key',
+            'credit_card',
+            'ssn',
+        ],
+        // Query binding values to redact, matched against the column name.
+        'query_bindings' => [
+            'password',
+            'secret',
+            'token',
+            'api_key',
+        ],
+    ],
+
 ];

@@ -81,7 +81,18 @@ class QueryWatcher extends Watcher
      */
     private function interpolate(string $sql, array $bindings): string
     {
-        $bindings = array_map(function (mixed $value): string {
+        $sensitiveColumns = array_map('strtolower', (array) config('probe.redact.query_bindings', []));
+        $columns          = $sensitiveColumns === [] ? [] : $this->columnsForPlaceholders($sql);
+        $index            = 0;
+
+        $bindings = array_map(function (mixed $value) use (&$index, $columns, $sensitiveColumns): string {
+            $column = $columns[$index] ?? null;
+            $index++;
+
+            if ($column !== null && $this->isSensitiveColumn($column, $sensitiveColumns)) {
+                return "'[redacted]'";
+            }
+
             if ($value === null) {
                 return 'NULL';
             }
@@ -102,6 +113,47 @@ class QueryWatcher extends Watcher
         }, $sql);
 
         return (string) $sql;
+    }
+
+    /**
+     * Best-effort column name lookup for each `?` placeholder, based on the
+     * identifier immediately preceding it (e.g. `password = ?`, `token LIKE ?`).
+     * Placeholders that aren't in that shape (e.g. `VALUES (?, ?)`) map to null.
+     *
+     * @return array<int, string|null>
+     */
+    private function columnsForPlaceholders(string $sql): array
+    {
+        preg_match_all('/\?/', $sql, $matches, PREG_OFFSET_CAPTURE);
+        $columns = [];
+
+        foreach ($matches[0] as [, $offset]) {
+            $before = substr($sql, 0, (int) $offset);
+
+            if (preg_match('/[`"\[]?([a-zA-Z_][a-zA-Z0-9_]*)[`"\]]?\s*(?:=|!=|<>|<=|>=|<|>|like)\s*$/i', $before, $m)) {
+                $columns[] = $m[1];
+            } else {
+                $columns[] = null;
+            }
+        }
+
+        return $columns;
+    }
+
+    /**
+     * @param string[] $sensitiveColumns
+     */
+    private function isSensitiveColumn(string $column, array $sensitiveColumns): bool
+    {
+        $column = strtolower($column);
+
+        foreach ($sensitiveColumns as $sensitive) {
+            if (str_contains($column, $sensitive)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

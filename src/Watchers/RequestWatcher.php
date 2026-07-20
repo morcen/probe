@@ -64,11 +64,73 @@ class RequestWatcher extends Watcher
      */
     private function captureBody(string $body): array
     {
+        $body = $this->redactBody($body);
+
         if (strlen($body) > self::MAX_BODY_BYTES) {
             return [substr($body, 0, self::MAX_BODY_BYTES), true];
         }
 
         return [$body, false];
+    }
+
+    /**
+     * Redact configured sensitive fields from a JSON body. Non-JSON bodies
+     * (e.g. plain text, multipart) are left untouched.
+     */
+    private function redactBody(string $body): string
+    {
+        $fields = config('probe.redact.body_fields', []);
+
+        if (empty($fields)) {
+            return $body;
+        }
+
+        $decoded = json_decode($body, true);
+
+        if (json_last_error() !== JSON_ERROR_NONE || ! is_array($decoded)) {
+            return $body;
+        }
+
+        $encoded = json_encode($this->redactFields($decoded, $fields));
+
+        return $encoded === false ? $body : $encoded;
+    }
+
+    /**
+     * @param array<array-key, mixed> $data
+     * @param string[] $fields
+     * @return array<array-key, mixed>
+     */
+    private function redactFields(array $data, array $fields): array
+    {
+        foreach ($data as $key => $value) {
+            if (is_string($key) && $this->isSensitiveField($key, $fields)) {
+                $data[$key] = '[redacted]';
+                continue;
+            }
+
+            if (is_array($value)) {
+                $data[$key] = $this->redactFields($value, $fields);
+            }
+        }
+
+        return $data;
+    }
+
+    /**
+     * @param string[] $fields
+     */
+    private function isSensitiveField(string $key, array $fields): bool
+    {
+        $key = strtolower($key);
+
+        foreach ($fields as $field) {
+            if (str_contains($key, strtolower($field))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
