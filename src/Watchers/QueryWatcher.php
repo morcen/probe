@@ -116,9 +116,11 @@ class QueryWatcher extends Watcher
     }
 
     /**
-     * Best-effort column name lookup for each `?` placeholder, based on the
-     * identifier immediately preceding it (e.g. `password = ?`, `token LIKE ?`).
-     * Placeholders that aren't in that shape (e.g. `VALUES (?, ?)`) map to null.
+     * Best-effort column name lookup for each `?` placeholder. Handles two shapes:
+     * an identifier immediately preceding it (e.g. `password = ?`, `token LIKE ?`),
+     * and positional placeholders inside `INSERT ... (col1, col2) VALUES (?, ?)`
+     * row groups, mapped onto the column list by position. Placeholders that
+     * aren't in either shape map to null.
      *
      * @return array<int, string|null>
      */
@@ -127,8 +129,21 @@ class QueryWatcher extends Watcher
         preg_match_all('/\?/', $sql, $matches, PREG_OFFSET_CAPTURE);
         $columns = [];
 
+        $insertColumns = $this->insertColumns($sql);
+        $valuesRange   = $insertColumns !== null ? $this->valuesGroupsRange($sql) : null;
+        $insertIndex   = 0;
+        $insertCount   = $insertColumns !== null ? count($insertColumns) : 0;
+
         foreach ($matches[0] as [, $offset]) {
-            $before = substr($sql, 0, (int) $offset);
+            $offset = (int) $offset;
+
+            if ($valuesRange !== null && $offset >= $valuesRange[0] && $offset < $valuesRange[1]) {
+                $columns[] = $insertColumns[$insertIndex % $insertCount];
+                $insertIndex++;
+                continue;
+            }
+
+            $before = substr($sql, 0, $offset);
 
             if (preg_match('/[`"\[]?([a-zA-Z_][a-zA-Z0-9_]*)[`"\]]?\s*(?:=|!=|<>|<=|>=|<|>|like)\s*$/i', $before, $m)) {
                 $columns[] = $m[1];
@@ -138,6 +153,44 @@ class QueryWatcher extends Watcher
         }
 
         return $columns;
+    }
+
+    /**
+     * Extract the column list from an `INSERT INTO table (col1, col2, ...) VALUES` statement.
+     *
+     * @return string[]|null
+     */
+    private function insertColumns(string $sql): ?array
+    {
+        if (! preg_match('/^\s*insert\s+into\s+[`"\[]?[a-zA-Z_][a-zA-Z0-9_.]*[`"\]]?\s*\(([^)]+)\)\s*values/i', $sql, $m)) {
+            return null;
+        }
+
+        $columns = array_map(
+            static fn (string $column): string => trim($column, " \t\n\r\0\x0B`\"[]"),
+            explode(',', $m[1])
+        );
+
+        return $columns === [] ? null : $columns;
+    }
+
+    /**
+     * Byte offset range covering the `VALUES (...), (...), ...` row groups, so
+     * placeholders inside them can be mapped positionally onto the column list,
+     * while placeholders elsewhere (e.g. an `ON DUPLICATE KEY UPDATE col = ?`
+     * clause) still fall back to the identifier-based lookup.
+     *
+     * @return array{0: int, 1: int}|null
+     */
+    private function valuesGroupsRange(string $sql): ?array
+    {
+        if (! preg_match('/\bvalues\s*((?:\([^()]*\)\s*,?\s*)+)/i', $sql, $m, PREG_OFFSET_CAPTURE)) {
+            return null;
+        }
+
+        $start = (int) $m[1][1];
+
+        return [$start, $start + strlen($m[1][0])];
     }
 
     /**
