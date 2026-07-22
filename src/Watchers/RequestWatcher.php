@@ -97,43 +97,6 @@ class RequestWatcher extends Watcher
     }
 
     /**
-     * @param array<array-key, mixed> $data
-     * @param string[] $fields
-     * @return array<array-key, mixed>
-     */
-    private function redactFields(array $data, array $fields): array
-    {
-        foreach ($data as $key => $value) {
-            if (is_string($key) && $this->isSensitiveField($key, $fields)) {
-                $data[$key] = '[redacted]';
-                continue;
-            }
-
-            if (is_array($value)) {
-                $data[$key] = $this->redactFields($value, $fields);
-            }
-        }
-
-        return $data;
-    }
-
-    /**
-     * @param string[] $fields
-     */
-    private function isSensitiveField(string $key, array $fields): bool
-    {
-        $key = strtolower($key);
-
-        foreach ($fields as $field) {
-            if (str_contains($key, strtolower($field))) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
      * Strip sensitive header values but keep the header keys.
      *
      * @param array<string, mixed> $headers

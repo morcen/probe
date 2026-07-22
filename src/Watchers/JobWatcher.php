@@ -130,6 +130,12 @@ class JobWatcher extends Watcher
      */
     private function capturePayload(array $payload): array
     {
+        $fields = config('probe.redact.body_fields', []);
+
+        if (! empty($fields) && isset($payload['data']) && is_array($payload['data'])) {
+            $payload['data'] = $this->redactFields($payload['data'], $fields);
+        }
+
         $json = json_encode($payload) ?: '';
         $max  = 10240; // 10 KB
 

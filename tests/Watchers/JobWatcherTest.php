@@ -81,6 +81,39 @@ it('updates the stored content to completed via a parameterized query, preservin
         ->and($row->tags)->toBe('job,default,completed');
 });
 
+it('redacts sensitive fields in the job payload data', function () {
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new JobWatcher($storage);
+    $watcher->register();
+
+    $job = Mockery::mock(\Illuminate\Contracts\Queue\Job::class);
+    $job->shouldReceive('getJobId')->andReturn('job-6');
+    $job->shouldReceive('getQueue')->andReturn('default');
+    $job->shouldReceive('resolveName')->andReturn('App\\Jobs\\ResetPassword');
+    $job->shouldReceive('attempts')->andReturn(1);
+    $job->shouldReceive('payload')->andReturn([
+        'displayName' => 'App\\Jobs\\ResetPassword',
+        'data'        => [
+            'email' => 'user@example.com',
+            'token' => 'super-secret-reset-token',
+        ],
+    ]);
+
+    event(new JobProcessing('redis', $job));
+
+    $content = json_decode($captured['content']['payload'], true);
+
+    expect($content['data']['email'])->toBe('user@example.com')
+        ->and($content['data']['token'])->toBe('[redacted]');
+});
+
 it('safely stores an exception message containing quotes and SQL-breaking characters on JobFailed', function () {
     $watcher = new JobWatcher(new DatabaseDriver());
     $watcher->register();
