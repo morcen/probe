@@ -12,6 +12,13 @@ beforeEach(function () {
     config()->set('probe.sampling_rate', 1.0);
 });
 
+class FakeResetPasswordJob
+{
+    public function __construct(public string $email, public string $token)
+    {
+    }
+}
+
 function makeFakeJob(string $id = 'job-1', string $queue = 'default'): object
 {
     $job = Mockery::mock(\Illuminate\Contracts\Queue\Job::class);
@@ -112,6 +119,43 @@ it('redacts sensitive fields in the job payload data', function () {
 
     expect($content['data']['email'])->toBe('user@example.com')
         ->and($content['data']['token'])->toBe('[redacted]');
+});
+
+it('redacts sensitive constructor properties from a real serialized job command payload', function () {
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new JobWatcher($storage);
+    $watcher->register();
+
+    $command = new FakeResetPasswordJob('user@example.com', 'super-secret-reset-token');
+
+    $job = Mockery::mock(\Illuminate\Contracts\Queue\Job::class);
+    $job->shouldReceive('getJobId')->andReturn('job-7');
+    $job->shouldReceive('getQueue')->andReturn('default');
+    $job->shouldReceive('resolveName')->andReturn('App\\Jobs\\ResetPassword');
+    $job->shouldReceive('attempts')->andReturn(1);
+    $job->shouldReceive('payload')->andReturn([
+        'displayName' => 'App\\Jobs\\ResetPassword',
+        'data'        => [
+            'commandName' => FakeResetPasswordJob::class,
+            'command'     => serialize($command),
+        ],
+    ]);
+
+    event(new JobProcessing('redis', $job));
+
+    $content = json_decode($captured['content']['payload'], true);
+    $decoded = $content['data']['command'];
+
+    expect($decoded)->toBeArray()
+        ->and($decoded['email'])->toBe('user@example.com')
+        ->and($decoded['token'])->toBe('[redacted]');
 });
 
 it('safely stores an exception message containing quotes and SQL-breaking characters on JobFailed', function () {
