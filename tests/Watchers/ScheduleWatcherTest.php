@@ -5,6 +5,7 @@ use Illuminate\Console\Events\ScheduledTaskFinished;
 use Illuminate\Console\Events\ScheduledTaskStarting;
 use Illuminate\Console\Scheduling\Event;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Morcen\Probe\Storage\DatabaseDriver;
 use Morcen\Probe\Storage\StorageDriverInterface;
 use Morcen\Probe\Watchers\ScheduleWatcher;
@@ -69,6 +70,20 @@ it('safely stores task output containing quotes and SQL-breaking characters on S
         ->and($content['output'])->toBe("'); DROP TABLE probe_entries; --");
 
     expect(DB::table('probe_entries')->count())->toBe(1);
+});
+
+it('does not let a database failure inside finalizeEntry crash the host application', function () {
+    $watcher = new ScheduleWatcher(new DatabaseDriver());
+    $watcher->register();
+
+    $task = makeFakeScheduledTask('mutex-5');
+    event(new ScheduledTaskStarting($task));
+
+    Schema::dropIfExists('probe_entries');
+
+    event(new ScheduledTaskFinished($task, 0.5));
+
+    expect(true)->toBeTrue();
 });
 
 it('marks the entry as failed on ScheduledTaskFailed', function () {

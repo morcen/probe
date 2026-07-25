@@ -32,71 +32,77 @@ class JobWatcher extends Watcher
 
     private function onProcessing(JobProcessing $event): void
     {
-        $job     = $event->job;
-        $jobId   = $job->getJobId();
-        $payload = $job->payload();
+        $this->safely(function () use ($event) {
+            $job     = $event->job;
+            $jobId   = $job->getJobId();
+            $payload = $job->payload();
 
-        [$body, $truncated] = $this->capturePayload($payload);
+            [$body, $truncated] = $this->capturePayload($payload);
 
-        $entryId = $this->record(
-            type: 'jobs',
-            content: [
-                'name'             => $payload['displayName'] ?? $job->resolveName(),
-                'queue'            => $job->getQueue(),
-                'connection'       => $event->connectionName,
-                'status'           => 'processing',
-                'payload'          => $body,
-                'payload_truncated' => $truncated,
-                'attempts'         => $job->attempts(),
-                'duration_ms'      => null,
-                'exception'        => null,
-            ],
-            tags: ['job', $job->getQueue(), 'processing'],
-        );
+            $entryId = $this->record(
+                type: 'jobs',
+                content: [
+                    'name'             => $payload['displayName'] ?? $job->resolveName(),
+                    'queue'            => $job->getQueue(),
+                    'connection'       => $event->connectionName,
+                    'status'           => 'processing',
+                    'payload'          => $body,
+                    'payload_truncated' => $truncated,
+                    'attempts'         => $job->attempts(),
+                    'duration_ms'      => null,
+                    'exception'        => null,
+                ],
+                tags: ['job', $job->getQueue(), 'processing'],
+            );
 
-        if ($jobId !== null && $entryId > 0) {
-            $this->jobs[(string) $jobId] = [
-                'entry_id'   => $entryId,
-                'started_at' => microtime(true),
-            ];
-        }
+            if ($jobId !== null && $entryId > 0) {
+                $this->jobs[(string) $jobId] = [
+                    'entry_id'   => $entryId,
+                    'started_at' => microtime(true),
+                ];
+            }
+        });
     }
 
     private function onProcessed(JobProcessed $event): void
     {
-        $jobId = (string) $event->job->getJobId();
+        $this->safely(function () use ($event) {
+            $jobId = (string) $event->job->getJobId();
 
-        if (! isset($this->jobs[$jobId])) {
-            return;
-        }
+            if (! isset($this->jobs[$jobId])) {
+                return;
+            }
 
-        $meta        = $this->jobs[$jobId];
-        $durationMs  = round((microtime(true) - $meta['started_at']) * 1000, 2);
+            $meta        = $this->jobs[$jobId];
+            $durationMs  = round((microtime(true) - $meta['started_at']) * 1000, 2);
 
-        $this->updateEntry($meta['entry_id'], 'completed', $durationMs, null, $event->job->getQueue());
-        unset($this->jobs[$jobId]);
+            $this->updateEntry($meta['entry_id'], 'completed', $durationMs, null, $event->job->getQueue());
+            unset($this->jobs[$jobId]);
+        });
     }
 
     private function onFailed(JobFailed $event): void
     {
-        $jobId = (string) $event->job->getJobId();
+        $this->safely(function () use ($event) {
+            $jobId = (string) $event->job->getJobId();
 
-        if (! isset($this->jobs[$jobId])) {
-            return;
-        }
+            if (! isset($this->jobs[$jobId])) {
+                return;
+            }
 
-        $meta       = $this->jobs[$jobId];
-        $durationMs = round((microtime(true) - $meta['started_at']) * 1000, 2);
+            $meta       = $this->jobs[$jobId];
+            $durationMs = round((microtime(true) - $meta['started_at']) * 1000, 2);
 
-        $this->updateEntry(
-            $meta['entry_id'],
-            'failed',
-            $durationMs,
-            $event->exception->getMessage(),
-            $event->job->getQueue()
-        );
+            $this->updateEntry(
+                $meta['entry_id'],
+                'failed',
+                $durationMs,
+                $event->exception->getMessage(),
+                $event->job->getQueue()
+            );
 
-        unset($this->jobs[$jobId]);
+            unset($this->jobs[$jobId]);
+        });
     }
 
     private function updateEntry(

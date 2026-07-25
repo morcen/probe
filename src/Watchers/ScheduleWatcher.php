@@ -32,58 +32,64 @@ class ScheduleWatcher extends Watcher
 
     private function onStarting(ScheduledTaskStarting $event): void
     {
-        $task   = $event->task;
-        $mutex  = $task->mutexName();
+        $this->safely(function () use ($event) {
+            $task   = $event->task;
+            $mutex  = $task->mutexName();
 
-        $entryId = $this->record(
-            type: 'schedule',
-            content: [
-                'command'    => $task->getSummaryForDisplay(),
-                'expression' => $task->expression ?? null,
-                'status'     => 'running',
-                'duration_ms' => null,
-                'output'     => null,
-            ],
-            tags: ['schedule', 'running'],
-        );
+            $entryId = $this->record(
+                type: 'schedule',
+                content: [
+                    'command'    => $task->getSummaryForDisplay(),
+                    'expression' => $task->expression ?? null,
+                    'status'     => 'running',
+                    'duration_ms' => null,
+                    'output'     => null,
+                ],
+                tags: ['schedule', 'running'],
+            );
 
-        if ($entryId > 0) {
-            $this->tasks[$mutex] = [
-                'entry_id'   => $entryId,
-                'started_at' => microtime(true),
-            ];
-        }
+            if ($entryId > 0) {
+                $this->tasks[$mutex] = [
+                    'entry_id'   => $entryId,
+                    'started_at' => microtime(true),
+                ];
+            }
+        });
     }
 
     private function onFinished(ScheduledTaskFinished $event): void
     {
-        $mutex = $event->task->mutexName();
+        $this->safely(function () use ($event) {
+            $mutex = $event->task->mutexName();
 
-        if (! isset($this->tasks[$mutex])) {
-            return;
-        }
+            if (! isset($this->tasks[$mutex])) {
+                return;
+            }
 
-        $meta       = $this->tasks[$mutex];
-        $durationMs = round((microtime(true) - $meta['started_at']) * 1000, 2);
-        $output     = $this->captureOutput($event->output ?? '');
+            $meta       = $this->tasks[$mutex];
+            $durationMs = round((microtime(true) - $meta['started_at']) * 1000, 2);
+            $output     = $this->captureOutput($event->output ?? '');
 
-        $this->finalizeEntry($meta['entry_id'], 'completed', $durationMs, $output, $event->task->getSummaryForDisplay());
-        unset($this->tasks[$mutex]);
+            $this->finalizeEntry($meta['entry_id'], 'completed', $durationMs, $output, $event->task->getSummaryForDisplay());
+            unset($this->tasks[$mutex]);
+        });
     }
 
     private function onFailed(ScheduledTaskFailed $event): void
     {
-        $mutex = $event->task->mutexName();
+        $this->safely(function () use ($event) {
+            $mutex = $event->task->mutexName();
 
-        if (! isset($this->tasks[$mutex])) {
-            return;
-        }
+            if (! isset($this->tasks[$mutex])) {
+                return;
+            }
 
-        $meta       = $this->tasks[$mutex];
-        $durationMs = round((microtime(true) - $meta['started_at']) * 1000, 2);
+            $meta       = $this->tasks[$mutex];
+            $durationMs = round((microtime(true) - $meta['started_at']) * 1000, 2);
 
-        $this->finalizeEntry($meta['entry_id'], 'failed', $durationMs, null, $event->task->getSummaryForDisplay());
-        unset($this->tasks[$mutex]);
+            $this->finalizeEntry($meta['entry_id'], 'failed', $durationMs, null, $event->task->getSummaryForDisplay());
+            unset($this->tasks[$mutex]);
+        });
     }
 
     private function finalizeEntry(

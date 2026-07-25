@@ -4,6 +4,7 @@ use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Morcen\Probe\Storage\DatabaseDriver;
 use Morcen\Probe\Storage\StorageDriverInterface;
 use Morcen\Probe\Watchers\JobWatcher;
@@ -156,6 +157,20 @@ it('redacts sensitive constructor properties from a real serialized job command 
     expect($decoded)->toBeArray()
         ->and($decoded['email'])->toBe('user@example.com')
         ->and($decoded['token'])->toBe('[redacted]');
+});
+
+it('does not let a database failure inside updateEntry crash the host application', function () {
+    $watcher = new JobWatcher(new DatabaseDriver());
+    $watcher->register();
+
+    $job = makeFakeJob('job-9');
+    event(new JobProcessing('redis', $job));
+
+    Schema::dropIfExists('probe_entries');
+
+    event(new JobProcessed('redis', $job));
+
+    expect(true)->toBeTrue();
 });
 
 it('safely stores an exception message containing quotes and SQL-breaking characters on JobFailed', function () {

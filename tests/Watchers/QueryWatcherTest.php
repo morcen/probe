@@ -140,6 +140,32 @@ it('does not redact non-sensitive bound values', function () {
     expect($captured['content']['sql'])->toBe('select * from users where id = 1');
 });
 
+it('does not crash on a binding without a __toString method', function () {
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new QueryWatcher($storage);
+    $watcher->register();
+
+    // Plain DateTime (unlike Carbon) has no __toString(); casting it to a
+    // string throws a fatal Error, previously uncaught because it happened
+    // before record()'s try/catch was ever entered.
+    event(new QueryExecuted(
+        'select * from logs where created_at > ?',
+        [new DateTime('2024-01-01')],
+        5.0,
+        app('db')->connection()
+    ));
+
+    expect($captured['content']['sql'])
+        ->toBe("select * from logs where created_at > '[unrepresentable]'");
+});
+
 it('detects n+1 queries and tags entries', function () {
     $ids = [];
 
