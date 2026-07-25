@@ -112,6 +112,48 @@ it('redacts sensitive fields in JSON request and response bodies', function () {
         ->and($decodedResponse['ok'])->toBeTrue();
 });
 
+it('redacts sensitive query string parameters in the recorded url', function () {
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new RequestWatcher($storage);
+    $watcher->register();
+
+    $request  = Request::create('/reset-password?token=super-secret&email=user%40example.com', 'GET');
+    $response = new Response('OK', 200);
+
+    event(new RequestHandled($request, $response));
+
+    expect($captured['content']['url'])->toContain('token=%5Bredacted%5D')
+        ->and($captured['content']['url'])->toContain('email=user%40example.com')
+        ->and($captured['content']['uri'])->toBe('reset-password');
+});
+
+it('leaves the recorded url untouched when there is no query string', function () {
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new RequestWatcher($storage);
+    $watcher->register();
+
+    $request  = Request::create('/hello', 'GET');
+    $response = new Response('OK', 200);
+
+    event(new RequestHandled($request, $response));
+
+    expect($captured['content']['url'])->toBe($request->fullUrl());
+});
+
 it('leaves non-JSON bodies untouched', function () {
     $captured = null;
 

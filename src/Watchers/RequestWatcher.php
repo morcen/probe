@@ -44,7 +44,7 @@ class RequestWatcher extends Watcher
             content: [
                 'method'              => $request->method(),
                 'uri'                 => $uri,
-                'url'                 => $request->fullUrl(),
+                'url'                 => $this->redactUrl($request->fullUrl()),
                 'status'              => $statusCode,
                 'duration_ms'         => $durationMs,
                 'user_id'             => Auth::id(),
@@ -94,6 +94,35 @@ class RequestWatcher extends Watcher
         $encoded = json_encode($this->redactFields($decoded, $fields));
 
         return $encoded === false ? $body : $encoded;
+    }
+
+    /**
+     * Redact configured sensitive fields from a URL's query string. The path
+     * and any non-query portion of the URL are left untouched.
+     */
+    private function redactUrl(string $url): string
+    {
+        $queryStart = strpos($url, '?');
+
+        if ($queryStart === false) {
+            return $url;
+        }
+
+        $fields = config('probe.redact.body_fields', []);
+
+        if (empty($fields)) {
+            return $url;
+        }
+
+        parse_str(substr($url, $queryStart + 1), $params);
+
+        if (empty($params)) {
+            return $url;
+        }
+
+        $redactedQuery = http_build_query($this->redactFields($params, $fields));
+
+        return substr($url, 0, $queryStart) . '?' . $redactedQuery;
     }
 
     /**
