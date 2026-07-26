@@ -65,6 +65,21 @@ abstract class Watcher
     }
 
     /**
+     * Run watcher work that isn't already covered by record()'s own
+     * try/catch (content construction, follow-up storage writes) so that
+     * an unexpected value or a storage failure there can never crash the
+     * host request/job/task either.
+     */
+    protected function safely(callable $callback): void
+    {
+        try {
+            $callback();
+        } catch (\Throwable) {
+            // Recording must never crash the host application.
+        }
+    }
+
+    /**
      * Dispatch alerts for this entry if rules are configured.
      *
      * @param array<mixed> $content

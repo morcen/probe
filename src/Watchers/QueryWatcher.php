@@ -28,50 +28,52 @@ class QueryWatcher extends Watcher
 
     private function onQuery(QueryExecuted $event): void
     {
-        $sql         = $this->interpolate($event->sql, $event->bindings);
-        $fingerprint = $this->fingerprint($event->sql);
-        $durationMs  = round($event->time, 2);
-        $slowMs      = (int) config('probe.watchers_config.queries.slow_threshold', 100);
-        $n1Threshold = (int) config('probe.watchers_config.queries.n1_threshold', 5);
+        $this->safely(function () use ($event) {
+            $sql         = $this->interpolate($event->sql, $event->bindings);
+            $fingerprint = $this->fingerprint($event->sql);
+            $durationMs  = round($event->time, 2);
+            $slowMs      = (int) config('probe.watchers_config.queries.slow_threshold', 100);
+            $n1Threshold = (int) config('probe.watchers_config.queries.n1_threshold', 5);
 
-        $tags = ['query'];
+            $tags = ['query'];
 
-        if ($durationMs >= $slowMs) {
-            $tags[] = 'slow';
-        }
+            if ($durationMs >= $slowMs) {
+                $tags[] = 'slow';
+            }
 
-        $id = $this->record(
-            type: 'queries',
-            content: [
-                'sql'            => $sql,
-                'connection'     => $event->connectionName,
-                'duration_ms'    => $durationMs,
-                'bindings_count' => count($event->bindings),
-            ],
-            tags: $tags,
-            familyHash: $fingerprint,
-        );
+            $id = $this->record(
+                type: 'queries',
+                content: [
+                    'sql'            => $sql,
+                    'connection'     => $event->connectionName,
+                    'duration_ms'    => $durationMs,
+                    'bindings_count' => count($event->bindings),
+                ],
+                tags: $tags,
+                familyHash: $fingerprint,
+            );
 
-        if ($id === 0) {
-            // Sampling skipped this entry.
-            return;
-        }
+            if ($id === 0) {
+                // Sampling skipped this entry.
+                return;
+            }
 
-        // Track for N+1 detection.
-        if (! isset($this->queryMap[$fingerprint])) {
-            $this->queryMap[$fingerprint] = ['count' => 0, 'ids' => []];
-        }
+            // Track for N+1 detection.
+            if (! isset($this->queryMap[$fingerprint])) {
+                $this->queryMap[$fingerprint] = ['count' => 0, 'ids' => []];
+            }
 
-        $this->queryMap[$fingerprint]['count']++;
-        $this->queryMap[$fingerprint]['ids'][] = $id;
+            $this->queryMap[$fingerprint]['count']++;
+            $this->queryMap[$fingerprint]['ids'][] = $id;
 
-        if ($this->queryMap[$fingerprint]['count'] === $n1Threshold + 1) {
-            // Threshold just crossed — back-tag all collected IDs.
-            $this->storage->addTagToIds($this->queryMap[$fingerprint]['ids'], 'n1');
-        } elseif ($this->queryMap[$fingerprint]['count'] > $n1Threshold + 1) {
-            // Already above threshold — tag just this new entry immediately.
-            $this->storage->addTagToIds([$id], 'n1');
-        }
+            if ($this->queryMap[$fingerprint]['count'] === $n1Threshold + 1) {
+                // Threshold just crossed — back-tag all collected IDs.
+                $this->storage->addTagToIds($this->queryMap[$fingerprint]['ids'], 'n1');
+            } elseif ($this->queryMap[$fingerprint]['count'] > $n1Threshold + 1) {
+                // Already above threshold — tag just this new entry immediately.
+                $this->storage->addTagToIds([$id], 'n1');
+            }
+        });
     }
 
     /**
@@ -103,6 +105,10 @@ class QueryWatcher extends Watcher
 
             if (is_numeric($value)) {
                 return (string) $value;
+            }
+
+            if (is_object($value) && ! method_exists($value, '__toString')) {
+                return "'[unrepresentable]'";
             }
 
             return "'" . addslashes((string) $value) . "'";
