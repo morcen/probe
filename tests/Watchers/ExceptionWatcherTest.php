@@ -8,6 +8,7 @@ beforeEach(function () {
     config()->set('probe.sampling_rate', 1.0);
     config()->set('probe.watchers_config.exceptions.ignore_exceptions', []);
     config()->set('probe.watchers_config.exceptions.strip_vendor_frames', false);
+    config()->set('probe.watchers_config.exceptions.redact_message', false);
 });
 
 it('records an exception from a log error event', function () {
@@ -77,4 +78,63 @@ it('ignores log events without an exception in context', function () {
     $watcher->register();
 
     event(new MessageLogged('error', 'plain error string', []));
+});
+
+it('redacts sensitive values interpolated into the exception message', function () {
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new ExceptionWatcher($storage);
+    $watcher->register();
+
+    $exception = new RuntimeException('Invalid API token: sk_live_abc123');
+
+    event(new MessageLogged('error', $exception->getMessage(), ['exception' => $exception]));
+
+    expect($captured['content']['message'])->toBe('Invalid API token: [redacted]');
+});
+
+it('leaves an exception message without a key/value shape untouched', function () {
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new ExceptionWatcher($storage);
+    $watcher->register();
+
+    $exception = new RuntimeException('Something broke');
+
+    event(new MessageLogged('error', $exception->getMessage(), ['exception' => $exception]));
+
+    expect($captured['content']['message'])->toBe('Something broke');
+});
+
+it('strips the exception message entirely when redact_message is enabled', function () {
+    config()->set('probe.watchers_config.exceptions.redact_message', true);
+
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new ExceptionWatcher($storage);
+    $watcher->register();
+
+    $exception = new RuntimeException('Invalid API token: sk_live_abc123');
+
+    event(new MessageLogged('error', $exception->getMessage(), ['exception' => $exception]));
+
+    expect($captured['content']['message'])->toBe('[redacted]');
 });

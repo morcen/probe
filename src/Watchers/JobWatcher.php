@@ -93,11 +93,13 @@ class JobWatcher extends Watcher
             $meta       = $this->jobs[$jobId];
             $durationMs = round((microtime(true) - $meta['started_at']) * 1000, 2);
 
+            $fields = config('probe.redact.body_fields', []);
+
             $this->updateEntry(
                 $meta['entry_id'],
                 'failed',
                 $durationMs,
-                $event->exception->getMessage(),
+                $this->redactMessage($event->exception->getMessage(), $fields),
                 $event->job->getQueue()
             );
 

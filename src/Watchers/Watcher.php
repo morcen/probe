@@ -153,4 +153,38 @@ abstract class Watcher
 
         return false;
     }
+
+    /**
+     * Best-effort redaction for free-form text (exception messages, command
+     * output, etc.) that doesn't have the structured key/value shape
+     * redactFields() expects. Scans for `key: value`, `key=value` and
+     * `key => value` shaped substrings whose key matches one of the given
+     * sensitive field substrings and replaces the value with '[redacted]'.
+     * Text that doesn't match that shape (e.g. a plain sentence) is left
+     * untouched — this is a defense-in-depth pass, not a guarantee.
+     *
+     * @param string[] $fields
+     */
+    protected function redactMessage(string $message, array $fields): string
+    {
+        if (empty($fields) || $message === '') {
+            return $message;
+        }
+
+        $pattern = '/([A-Za-z0-9_-]+)(\s*(?:=>|[:=])\s*)("[^"]*"|\'[^\']*\'|[^\s,;]+)/';
+
+        $redacted = preg_replace_callback($pattern, function (array $matches) use ($fields) {
+            [, $key, $separator, $value] = $matches;
+
+            if (! $this->isSensitiveField($key, $fields)) {
+                return $key . $separator . $value;
+            }
+
+            $quote = ($value !== '' && in_array($value[0], ['"', "'"], true)) ? $value[0] : '';
+
+            return $key . $separator . $quote . '[redacted]' . $quote;
+        }, $message);
+
+        return $redacted ?? $message;
+    }
 }
