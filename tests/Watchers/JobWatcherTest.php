@@ -173,6 +173,23 @@ it('does not let a database failure inside updateEntry crash the host applicatio
     expect(true)->toBeTrue();
 });
 
+it('redacts sensitive values interpolated into the failure exception message', function () {
+    $watcher = new JobWatcher(new DatabaseDriver());
+    $watcher->register();
+
+    $job = makeFakeJob('job-8');
+    event(new JobProcessing('redis', $job));
+
+    $exception = new Exception('Invalid API token: sk_live_abc123');
+    event(new JobFailed('redis', $job, $exception));
+
+    $row     = DB::table('probe_entries')->where('type', 'jobs')->first();
+    $content = json_decode($row->content, true);
+
+    expect($content['status'])->toBe('failed')
+        ->and($content['exception'])->toBe('Invalid API token: [redacted]');
+});
+
 it('safely stores an exception message containing quotes and SQL-breaking characters on JobFailed', function () {
     $watcher = new JobWatcher(new DatabaseDriver());
     $watcher->register();

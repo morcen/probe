@@ -131,6 +131,11 @@ return [
             ],
             // Strip vendor frames from stack traces.
             'strip_vendor_frames' => (bool) env('PROBE_STRIP_VENDOR_FRAMES', false),
+            // Replace the entire exception message with '[redacted]' instead
+            // of the best-effort key/value redaction pass. Enable this if
+            // your application's exception messages routinely carry
+            // sensitive data that doesn't have a "key: value" shape.
+            'redact_message'      => (bool) env('PROBE_REDACT_EXCEPTION_MESSAGE', false),
         ],
 
     ],
@@ -139,14 +144,16 @@ return [
     |--------------------------------------------------------------------------
     | Redaction
     |--------------------------------------------------------------------------
-    | Captured request/response bodies and interpolated query bindings can
-    | carry sensitive values (passwords, tokens, etc). Any field/column
-    | whose name *contains* one of these substrings (case-insensitive) is
-    | replaced with '[redacted]' before being stored.
+    | Captured request/response bodies, job payloads, exception messages,
+    | and interpolated query bindings can carry sensitive values (passwords,
+    | tokens, etc). Any field/column whose name *contains* one of these
+    | substrings (case-insensitive) is replaced with '[redacted]' before
+    | being stored.
     */
 
     'redact' => [
-        // Request/response body fields (JSON payloads) to redact.
+        // Request/response body fields (JSON payloads), job payloads, and
+        // exception/job-failure messages (best-effort key/value scan) to redact.
         'body_fields'    => [
             'password',
             'secret',

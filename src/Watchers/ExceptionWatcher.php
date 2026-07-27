@@ -45,7 +45,7 @@ class ExceptionWatcher extends Watcher
             type: 'exceptions',
             content: [
                 'class'   => $class,
-                'message' => $exception->getMessage(),
+                'message' => $this->redactExceptionMessage($exception->getMessage()),
                 'file'    => $file,
                 'line'    => $line,
                 'trace'   => $this->formatTrace($exception),
@@ -55,6 +55,23 @@ class ExceptionWatcher extends Watcher
             tags: ['exception', $shortClass],
             familyHash: $familyHash,
         );
+    }
+
+    /**
+     * Redact a captured exception message. When
+     * `probe.watchers_config.exceptions.redact_message` is enabled the
+     * message is stripped entirely; otherwise a best-effort key/value scan
+     * against `probe.redact.body_fields` is applied, catching common cases
+     * like "Invalid API token: {$token}" without a full guarantee for
+     * freeform prose.
+     */
+    private function redactExceptionMessage(string $message): string
+    {
+        if (config('probe.watchers_config.exceptions.redact_message', false)) {
+            return '[redacted]';
+        }
+
+        return $this->redactMessage($message, config('probe.redact.body_fields', []));
     }
 
     /**
