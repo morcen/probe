@@ -123,6 +123,97 @@ it('redacts sensitive bound values across multi-row INSERT statements', function
         ->toBe("insert into users (name, password) values ('Jane Doe', '[redacted]'), ('John Doe', '[redacted]')");
 });
 
+it('redacts sensitive bound values inside an IN (...) clause', function () {
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new QueryWatcher($storage);
+    $watcher->register();
+
+    event(new QueryExecuted(
+        'select * from users where api_token in (?, ?)',
+        ['token-one', 'token-two'],
+        5.0,
+        app('db')->connection()
+    ));
+
+    expect($captured['content']['sql'])
+        ->toBe("select * from users where api_token in ('[redacted]', '[redacted]')");
+});
+
+it('redacts sensitive bound values inside a NOT IN (...) clause', function () {
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new QueryWatcher($storage);
+    $watcher->register();
+
+    event(new QueryExecuted(
+        'select * from users where token not in (?, ?)',
+        ['token-one', 'token-two'],
+        5.0,
+        app('db')->connection()
+    ));
+
+    expect($captured['content']['sql'])
+        ->toBe("select * from users where token not in ('[redacted]', '[redacted]')");
+});
+
+it('redacts sensitive bound values inside a BETWEEN ? AND ? clause', function () {
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new QueryWatcher($storage);
+    $watcher->register();
+
+    event(new QueryExecuted(
+        'select * from users where token between ? and ?',
+        ['token-start', 'token-end'],
+        5.0,
+        app('db')->connection()
+    ));
+
+    expect($captured['content']['sql'])
+        ->toBe("select * from users where token between '[redacted]' and '[redacted]'");
+});
+
+it('does not redact non-sensitive bound values inside an IN (...) clause', function () {
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new QueryWatcher($storage);
+    $watcher->register();
+
+    event(new QueryExecuted(
+        'select * from users where id in (?, ?)',
+        [1, 2],
+        5.0,
+        app('db')->connection()
+    ));
+
+    expect($captured['content']['sql'])->toBe('select * from users where id in (1, 2)');
+});
+
 it('does not redact non-sensitive bound values', function () {
     $captured = null;
 
