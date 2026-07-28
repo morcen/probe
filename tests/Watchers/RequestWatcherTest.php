@@ -77,6 +77,58 @@ it('redacts authorization header', function () {
     expect($captured['content']['headers']['authorization'])->toBe(['[redacted]']);
 });
 
+it('redacts custom sensitive headers not in the legacy hardcoded list', function () {
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new RequestWatcher($storage);
+    $watcher->register();
+
+    $request = Request::create('/api/user', 'GET', [], [], [], [
+        'HTTP_X_API_KEY'          => 'secret-api-key',
+        'HTTP_PROXY_AUTHORIZATION' => 'Basic secret-proxy-creds',
+        'HTTP_X_ACCEPT_LANGUAGE'  => 'en-US',
+    ]);
+    $response = new Response('{}', 200);
+
+    event(new RequestHandled($request, $response));
+
+    expect($captured['content']['headers']['x-api-key'])->toBe(['[redacted]'])
+        ->and($captured['content']['headers']['proxy-authorization'])->toBe(['[redacted]'])
+        ->and($captured['content']['headers']['x-accept-language'])->toBe(['en-US']);
+});
+
+it('respects a custom probe.redact.headers configuration', function () {
+    config()->set('probe.redact.headers', ['x-custom-secret']);
+
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new RequestWatcher($storage);
+    $watcher->register();
+
+    $request = Request::create('/api/user', 'GET', [], [], [], [
+        'HTTP_X_CUSTOM_SECRET' => 'top-secret',
+        'HTTP_AUTHORIZATION'   => 'Bearer no-longer-redacted',
+    ]);
+    $response = new Response('{}', 200);
+
+    event(new RequestHandled($request, $response));
+
+    expect($captured['content']['headers']['x-custom-secret'])->toBe(['[redacted]'])
+        ->and($captured['content']['headers']['authorization'])->toBe(['Bearer no-longer-redacted']);
+});
+
 it('redacts sensitive fields in JSON request and response bodies', function () {
     $captured = null;
 

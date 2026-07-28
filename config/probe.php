@@ -169,6 +169,16 @@ return [
             'token',
             'api_key',
         ],
+        // Request header values to redact, matched against the header name.
+        'headers'        => [
+            'authorization',
+            'cookie',
+            'token',
+            'api-key',
+            'api_key',
+            'secret',
+            'password',
+        ],
     ],
 
 ];

@@ -133,10 +133,10 @@ class RequestWatcher extends Watcher
      */
     private function sanitizeHeaders(array $headers): array
     {
-        $sensitive = ['authorization', 'cookie', 'set-cookie', 'x-csrf-token', 'x-xsrf-token'];
+        $sensitive = config('probe.redact.headers', []);
 
         foreach ($headers as $key => $value) {
-            if (in_array(strtolower($key), $sensitive, true)) {
+            if ($this->isSensitiveField((string) $key, $sensitive)) {
                 $headers[$key] = ['[redacted]'];
             }
         }
