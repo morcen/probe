@@ -140,6 +140,8 @@ class QueryWatcher extends Watcher
         $insertIndex   = 0;
         $insertCount   = $insertColumns !== null ? count($insertColumns) : 0;
 
+        $clauseColumns = $this->clauseColumnsForPlaceholders($sql);
+
         foreach ($matches[0] as [, $offset]) {
             $offset = (int) $offset;
 
@@ -149,12 +151,51 @@ class QueryWatcher extends Watcher
                 continue;
             }
 
+            if (isset($clauseColumns[$offset])) {
+                $columns[] = $clauseColumns[$offset];
+                continue;
+            }
+
             $before = substr($sql, 0, $offset);
 
             if (preg_match('/[`"\[]?([a-zA-Z_][a-zA-Z0-9_]*)[`"\]]?\s*(?:=|!=|<>|<=|>=|<|>|like)\s*$/i', $before, $m)) {
                 $columns[] = $m[1];
             } else {
                 $columns[] = null;
+            }
+        }
+
+        return $columns;
+    }
+
+    /**
+     * Best-effort column lookup for placeholders inside `IN (...)` / `NOT IN (...)`
+     * and `BETWEEN ? AND ?` clauses, which the identifier-adjacency regex in
+     * columnsForPlaceholders() can't reach since the placeholder isn't immediately
+     * preceded by the column name. Keyed by the placeholder's byte offset in $sql.
+     *
+     * @return array<int, string>
+     */
+    private function clauseColumnsForPlaceholders(string $sql): array
+    {
+        $columns = [];
+
+        if (preg_match_all('/[`"\[]?([a-zA-Z_][a-zA-Z0-9_]*)[`"\]]?\s+(?:not\s+)?in\s*\(([^()]*)\)/i', $sql, $m, PREG_OFFSET_CAPTURE)) {
+            foreach ($m[1] as $i => [$column]) {
+                [$groupText, $groupOffset] = $m[2][$i];
+                $pos = 0;
+
+                while (($p = strpos($groupText, '?', $pos)) !== false) {
+                    $columns[(int) $groupOffset + $p] = $column;
+                    $pos = $p + 1;
+                }
+            }
+        }
+
+        if (preg_match_all('/[`"\[]?([a-zA-Z_][a-zA-Z0-9_]*)[`"\]]?\s+(?:not\s+)?between\s+(\?)\s+and\s+(\?)/i', $sql, $m, PREG_OFFSET_CAPTURE)) {
+            foreach ($m[1] as $i => [$column]) {
+                $columns[(int) $m[2][$i][1]] = $column;
+                $columns[(int) $m[3][$i][1]] = $column;
             }
         }
 
