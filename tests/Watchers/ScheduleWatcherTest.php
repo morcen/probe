@@ -12,6 +12,7 @@ use Morcen\Probe\Watchers\ScheduleWatcher;
 
 beforeEach(function () {
     config()->set('probe.sampling_rate', 1.0);
+    config()->set('probe.redact.body_fields', ['password', 'secret', 'token', 'api_key']);
 });
 
 function makeFakeScheduledTask(string $mutex = 'mutex-1', string $summary = 'php artisan test:command'): Event
@@ -84,6 +85,36 @@ it('does not let a database failure inside finalizeEntry crash the host applicat
     event(new ScheduledTaskFinished($task, 0.5));
 
     expect(true)->toBeTrue();
+});
+
+it('redacts sensitive values in the command string recorded on ScheduledTaskStarting', function () {
+    $watcher = new ScheduleWatcher(new DatabaseDriver());
+    $watcher->register();
+
+    $task = makeFakeScheduledTask('mutex-6', "php artisan sync:api --token=sk_live_abc123");
+    event(new ScheduledTaskStarting($task));
+
+    $row     = DB::table('probe_entries')->where('type', 'schedule')->first();
+    $content = json_decode($row->content, true);
+
+    expect($content['command'])->toBe('php artisan sync:api --token=[redacted]');
+});
+
+it('redacts sensitive values in the captured output on ScheduledTaskFinished', function () {
+    $watcher = new ScheduleWatcher(new DatabaseDriver());
+    $watcher->register();
+
+    $task = makeFakeScheduledTask('mutex-7');
+    event(new ScheduledTaskStarting($task));
+
+    $finished         = new ScheduledTaskFinished($task, 0.5);
+    $finished->output = 'Authenticated with api_key: sk_live_abc123';
+    event($finished);
+
+    $row     = DB::table('probe_entries')->where('type', 'schedule')->first();
+    $content = json_decode($row->content, true);
+
+    expect($content['output'])->toBe('Authenticated with api_key: [redacted]');
 });
 
 it('marks the entry as failed on ScheduledTaskFailed', function () {
