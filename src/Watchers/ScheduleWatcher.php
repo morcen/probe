@@ -35,11 +35,12 @@ class ScheduleWatcher extends Watcher
         $this->safely(function () use ($event) {
             $task   = $event->task;
             $mutex  = $task->mutexName();
+            $fields = config('probe.redact.body_fields', []);
 
             $entryId = $this->record(
                 type: 'schedule',
                 content: [
-                    'command'    => $task->getSummaryForDisplay(),
+                    'command'    => $this->redactMessage($task->getSummaryForDisplay(), $fields),
                     'expression' => $task->expression ?? null,
                     'status'     => 'running',
                     'duration_ms' => null,
@@ -68,7 +69,8 @@ class ScheduleWatcher extends Watcher
 
             $meta       = $this->tasks[$mutex];
             $durationMs = round((microtime(true) - $meta['started_at']) * 1000, 2);
-            $output     = $this->captureOutput($event->output ?? '');
+            $fields     = config('probe.redact.body_fields', []);
+            $output     = $this->redactMessage($this->captureOutput($event->output ?? ''), $fields);
 
             $this->finalizeEntry($meta['entry_id'], 'completed', $durationMs, $output, $event->task->getSummaryForDisplay());
             unset($this->tasks[$mutex]);
