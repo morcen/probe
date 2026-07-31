@@ -168,6 +168,8 @@ return [
             'secret',
             'token',
             'api_key',
+            'credit_card',
+            'ssn',
         ],
         // Request header values to redact, matched against the header name.
         'headers'        => [

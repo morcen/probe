@@ -100,6 +100,29 @@ it('redacts sensitive bound values in an INSERT statement', function () {
         ->toBe("insert into users (name, email, password) values ('Jane Doe', 'jane@example.com', '[redacted]')");
 });
 
+it('redacts credit_card and ssn bound values by default', function () {
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new QueryWatcher($storage);
+    $watcher->register();
+
+    event(new QueryExecuted(
+        'insert into payments (user_id, credit_card, ssn) values (?, ?, ?)',
+        [1, '4111111111111111', '123-45-6789'],
+        5.0,
+        app('db')->connection()
+    ));
+
+    expect($captured['content']['sql'])
+        ->toBe("insert into payments (user_id, credit_card, ssn) values (1, '[redacted]', '[redacted]')");
+});
+
 it('redacts sensitive bound values in an INSERT IGNORE INTO statement', function () {
     $captured = null;
 
