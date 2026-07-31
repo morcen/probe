@@ -209,7 +209,7 @@ class QueryWatcher extends Watcher
      */
     private function insertColumns(string $sql): ?array
     {
-        if (! preg_match('/^\s*insert\s+into\s+[`"\[]?[a-zA-Z_][a-zA-Z0-9_.]*[`"\]]?\s*\(([^)]+)\)\s*values/i', $sql, $m)) {
+        if (! preg_match('/^\s*(?:insert\s+ignore\s+into|replace\s+into|insert\s+into)\s+[`"\[]?[a-zA-Z_][a-zA-Z0-9_.]*[`"\]]?\s*\(([^)]+)\)\s*values/i', $sql, $m)) {
             return null;
         }
 

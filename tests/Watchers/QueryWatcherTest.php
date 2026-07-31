@@ -100,6 +100,52 @@ it('redacts sensitive bound values in an INSERT statement', function () {
         ->toBe("insert into users (name, email, password) values ('Jane Doe', 'jane@example.com', '[redacted]')");
 });
 
+it('redacts sensitive bound values in an INSERT IGNORE INTO statement', function () {
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new QueryWatcher($storage);
+    $watcher->register();
+
+    event(new QueryExecuted(
+        'insert ignore into users (name, email, password) values (?, ?, ?)',
+        ['Jane Doe', 'jane@example.com', 'super-secret-hash'],
+        5.0,
+        app('db')->connection()
+    ));
+
+    expect($captured['content']['sql'])
+        ->toBe("insert ignore into users (name, email, password) values ('Jane Doe', 'jane@example.com', '[redacted]')");
+});
+
+it('redacts sensitive bound values in a REPLACE INTO statement', function () {
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new QueryWatcher($storage);
+    $watcher->register();
+
+    event(new QueryExecuted(
+        'replace into users (name, email, password) values (?, ?, ?)',
+        ['Jane Doe', 'jane@example.com', 'super-secret-hash'],
+        5.0,
+        app('db')->connection()
+    ));
+
+    expect($captured['content']['sql'])
+        ->toBe("replace into users (name, email, password) values ('Jane Doe', 'jane@example.com', '[redacted]')");
+});
+
 it('redacts sensitive bound values across multi-row INSERT statements', function () {
     $captured = null;
 
