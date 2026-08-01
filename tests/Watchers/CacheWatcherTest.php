@@ -100,6 +100,44 @@ it('does not let a storage failure crash the host application', function () {
     expect(true)->toBeTrue();
 });
 
+it('redacts a cache key matching a configured sensitive substring', function () {
+    config()->set('probe.redact.cache_keys', ['password_reset']);
+
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new CacheWatcher($storage);
+    $watcher->register();
+
+    Cache::get('password_reset:abc123');
+
+    expect($captured['content']['key'])->toBe('[redacted]');
+});
+
+it('does not redact a cache key with no sensitive substring match', function () {
+    config()->set('probe.redact.cache_keys', ['password_reset']);
+
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new CacheWatcher($storage);
+    $watcher->register();
+
+    Cache::get('user.1');
+
+    expect($captured['content']['key'])->toBe('user.1');
+});
+
 it('resets the recording guard after a storage failure so later entries are still recorded', function () {
     $storage = Mockery::mock(StorageDriverInterface::class);
     $storage->shouldReceive('store')->once()->andThrow(new \RuntimeException('storage unavailable'));
