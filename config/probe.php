@@ -181,6 +181,16 @@ return [
             'secret',
             'password',
         ],
+        // Cache keys to redact entirely (e.g. 'password_reset:{token}',
+        // 'otp:{user}:{code}'), matched against the whole key string since
+        // cache keys have no separate field name to check.
+        'cache_keys'     => [
+            'password_reset',
+            'otp',
+            'token',
+            'api_key',
+            'secret',
+        ],
     ],
 
 ];

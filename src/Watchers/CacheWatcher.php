@@ -13,13 +13,13 @@ class CacheWatcher extends Watcher
     {
         app('events')->listen(CacheHit::class, fn (CacheHit $e) => $this->record(
             type: 'cache',
-            content: ['event' => 'hit', 'key' => $e->key, 'store' => $e->storeName ?? 'default'],
+            content: ['event' => 'hit', 'key' => $this->redactKey($e->key), 'store' => $e->storeName ?? 'default'],
             tags: ['cache', 'hit'],
         ));
 
         app('events')->listen(CacheMissed::class, fn (CacheMissed $e) => $this->record(
             type: 'cache',
-            content: ['event' => 'miss', 'key' => $e->key, 'store' => $e->storeName ?? 'default'],
+            content: ['event' => 'miss', 'key' => $this->redactKey($e->key), 'store' => $e->storeName ?? 'default'],
             tags: ['cache', 'miss'],
         ));
 
@@ -27,7 +27,7 @@ class CacheWatcher extends Watcher
             type: 'cache',
             content: [
                 'event'   => 'write',
-                'key'     => $e->key,
+                'key'     => $this->redactKey($e->key),
                 'store'   => $e->storeName ?? 'default',
                 'seconds' => $e->seconds,
             ],
@@ -36,8 +36,21 @@ class CacheWatcher extends Watcher
 
         app('events')->listen(KeyForgotten::class, fn (KeyForgotten $e) => $this->record(
             type: 'cache',
-            content: ['event' => 'forget', 'key' => $e->key, 'store' => $e->storeName ?? 'default'],
+            content: ['event' => 'forget', 'key' => $this->redactKey($e->key), 'store' => $e->storeName ?? 'default'],
             tags: ['cache', 'forget'],
         ));
+    }
+
+    /**
+     * Redact the entire cache key when it contains one of the configured
+     * sensitive substrings. Cache keys have no separate field name to check
+     * against (unlike request bodies or query bindings), so a match redacts
+     * the whole key rather than just part of it.
+     */
+    private function redactKey(string $key): string
+    {
+        $fields = config('probe.redact.cache_keys', []);
+
+        return $this->isSensitiveField($key, $fields) ? '[redacted]' : $key;
     }
 }
