@@ -16,6 +16,17 @@ abstract class Watcher
      */
     abstract public function register(): void;
 
+    /**
+     * Clear any per-request state this watcher accumulated (e.g. an N+1
+     * detection map). Called between requests by long-running process
+     * managers (Octane) that reuse the same watcher instance across
+     * requests instead of constructing a fresh one per request. Watchers
+     * with no per-request state can leave this as a no-op.
+     */
+    public function resetPerRequestState(): void
+    {
+    }
+
     private static bool $recording = false;
 
     /**

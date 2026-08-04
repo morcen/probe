@@ -349,3 +349,37 @@ it('detects n+1 queries and tags entries', function () {
         event(new QueryExecuted('select * from posts where user_id = ?', [1], 5.0, app('db')->connection()));
     }
 });
+
+it('clears the n+1 detection map via resetPerRequestState()', function () {
+    $ids = [];
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->andReturnUsing(function () use (&$ids) {
+        $id = count($ids) + 1;
+        $ids[] = $id;
+        return $id;
+    });
+
+    // If resetPerRequestState() actually clears the tracking map, each
+    // batch of 4 identical queries crosses the threshold (3) on its own
+    // 4th query and tags all 4 of that batch's ids together — the same
+    // shape as a single, un-reset batch of 4. Without the reset, the
+    // second batch would already be above the threshold from the first
+    // batch and would instead tag one id at a time.
+    $storage->shouldReceive('addTagToIds')
+        ->twice()
+        ->with(Mockery::on(fn ($arg) => count($arg) === 4), 'n1');
+
+    $watcher = new QueryWatcher($storage);
+    $watcher->register();
+
+    for ($i = 0; $i < 4; $i++) {
+        event(new QueryExecuted('select * from posts where user_id = ?', [1], 5.0, app('db')->connection()));
+    }
+
+    $watcher->resetPerRequestState();
+
+    for ($i = 0; $i < 4; $i++) {
+        event(new QueryExecuted('select * from posts where user_id = ?', [1], 5.0, app('db')->connection()));
+    }
+});

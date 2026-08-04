@@ -35,6 +35,14 @@ class ProbeServiceProvider extends ServiceProvider
         'schedule'   => ScheduleWatcher::class,
     ];
 
+    /**
+     * Watcher instances booted for this process, kept so Octane can reset
+     * their per-request state without re-registering event listeners.
+     *
+     * @var array<int, \Morcen\Probe\Watchers\Watcher>
+     */
+    private array $watchers = [];
+
     public function register(): void
     {
         $this->mergeConfigFrom(
@@ -98,6 +106,8 @@ class ProbeServiceProvider extends ServiceProvider
             /** @var \Morcen\Probe\Watchers\Watcher $watcher */
             $watcher = new $watcherClass($storage);
             $watcher->register();
+
+            $this->watchers[] = $watcher;
         }
     }
 
@@ -134,8 +144,13 @@ class ProbeServiceProvider extends ServiceProvider
 
     /**
      * Reset per-request watcher state when running under Laravel Octane.
-     * Octane reuses the same process across requests, so static state must
-     * be cleared between requests.
+     * Octane reuses the same process (and the same watcher instances)
+     * across requests, so per-request maps (e.g. QueryWatcher::$queryMap)
+     * must be cleared between requests. This must NOT re-register the
+     * watchers: calling bootWatchers() again here would attach a brand new
+     * set of event listeners on top of the existing ones every request,
+     * stacking duplicate listeners (and duplicate recorded entries)
+     * without bound for the lifetime of the worker.
      */
     private function registerOctaneListeners(): void
     {
@@ -144,9 +159,9 @@ class ProbeServiceProvider extends ServiceProvider
         }
 
         app('events')->listen(\Laravel\Octane\Events\RequestReceived::class, function () {
-            // Re-boot watchers with a fresh storage instance so per-request
-            // maps (e.g. QueryWatcher::$queryMap) are reset.
-            $this->bootWatchers();
+            foreach ($this->watchers as $watcher) {
+                $watcher->resetPerRequestState();
+            }
         });
     }
 
