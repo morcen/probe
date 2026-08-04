@@ -26,7 +26,7 @@ class ProbeController extends Controller
         $type    = $request->query('type');
         $tag     = $request->query('tag');
         $search  = $request->query('search');
-        $perPage = min((int) $request->query('per_page', 50), 200);
+        $perPage = max(1, min((int) $request->query('per_page', 50), 200));
 
         $query = DB::table('probe_entries')
             ->orderByDesc('id');
