@@ -22,8 +22,13 @@ class QueryWatcher extends Watcher
 
         // Reset the per-request map after each HTTP request completes.
         app('events')->listen(RequestHandled::class, function () {
-            $this->queryMap = [];
+            $this->resetPerRequestState();
         });
+    }
+
+    public function resetPerRequestState(): void
+    {
+        $this->queryMap = [];
     }
 
     private function onQuery(QueryExecuted $event): void
