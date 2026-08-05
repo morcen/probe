@@ -1,0 +1,76 @@
+<?php
+
+use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Support\Facades\Http;
+use Morcen\Probe\Alerts\AlertDispatcher;
+
+// AlertDispatcher must never let a slow/unreachable Slack or webhook
+// endpoint stall the request/job/command it's reporting on, so every
+// outbound alert call is bounded by an explicit connect + request timeout
+// rather than Guzzle's default of "no timeout at all".
+
+beforeEach(function () {
+    config()->set('probe.alerts', []);
+});
+
+it('bounds slack alerts with an explicit connect and request timeout', function () {
+    Http::shouldReceive('connectTimeout')->once()->with(2)->andReturnSelf();
+    Http::shouldReceive('timeout')->once()->with(3)->andReturnSelf();
+    Http::shouldReceive('post')
+        ->once()
+        ->with('https://hooks.slack.test/abc', Mockery::type('array'))
+        ->andReturn(null);
+
+    config()->set('probe.alerts', [
+        ['types' => ['exceptions'], 'channel' => 'slack', 'url' => 'https://hooks.slack.test/abc'],
+    ]);
+
+    (new AlertDispatcher())->dispatch('exceptions', ['class' => 'RuntimeException', 'message' => 'boom'], []);
+});
+
+it('bounds webhook alerts with an explicit connect and request timeout', function () {
+    Http::shouldReceive('connectTimeout')->once()->with(2)->andReturnSelf();
+    Http::shouldReceive('timeout')->once()->with(3)->andReturnSelf();
+    Http::shouldReceive('post')
+        ->once()
+        ->with('https://example.test/webhook', Mockery::type('array'))
+        ->andReturn(null);
+
+    config()->set('probe.alerts', [
+        ['types' => ['jobs'], 'tags' => ['failed'], 'channel' => 'webhook', 'url' => 'https://example.test/webhook'],
+    ]);
+
+    (new AlertDispatcher())->dispatch('jobs', ['name' => 'SendInvoice'], ['failed']);
+});
+
+it('does not let a timed-out slack alert crash the host application', function () {
+    Http::shouldReceive('connectTimeout')->once()->with(2)->andReturnSelf();
+    Http::shouldReceive('timeout')->once()->with(3)->andReturnSelf();
+    Http::shouldReceive('post')
+        ->once()
+        ->andThrow(new ConnectionException('cURL error 28: Operation timed out'));
+
+    config()->set('probe.alerts', [
+        ['types' => ['exceptions'], 'channel' => 'slack', 'url' => 'https://hooks.slack.test/abc'],
+    ]);
+
+    (new AlertDispatcher())->dispatch('exceptions', ['class' => 'RuntimeException', 'message' => 'boom'], []);
+
+    expect(true)->toBeTrue();
+});
+
+it('does not let a timed-out webhook alert crash the host application', function () {
+    Http::shouldReceive('connectTimeout')->once()->with(2)->andReturnSelf();
+    Http::shouldReceive('timeout')->once()->with(3)->andReturnSelf();
+    Http::shouldReceive('post')
+        ->once()
+        ->andThrow(new ConnectionException('cURL error 28: Operation timed out'));
+
+    config()->set('probe.alerts', [
+        ['types' => ['jobs'], 'channel' => 'webhook', 'url' => 'https://example.test/webhook'],
+    ]);
+
+    (new AlertDispatcher())->dispatch('jobs', ['name' => 'SendInvoice'], []);
+
+    expect(true)->toBeTrue();
+});
