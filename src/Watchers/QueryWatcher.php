@@ -14,6 +14,14 @@ class QueryWatcher extends Watcher
      */
     private array $queryMap = [];
 
+    /**
+     * Fallback cap on tracked fingerprints, used when nothing ever resets
+     * the map (queue workers and long-running console commands never fire
+     * RequestHandled). Oldest fingerprints are evicted once this is hit,
+     * so memory stays bounded even outside the HTTP request lifecycle.
+     */
+    private const DEFAULT_MAX_TRACKED_FINGERPRINTS = 1000;
+
     public function register(): void
     {
         app('events')->listen(QueryExecuted::class, function (QueryExecuted $event) {
@@ -65,6 +73,18 @@ class QueryWatcher extends Watcher
 
             // Track for N+1 detection.
             if (! isset($this->queryMap[$fingerprint])) {
+                $maxTracked = (int) config(
+                    'probe.watchers_config.queries.max_tracked_fingerprints',
+                    self::DEFAULT_MAX_TRACKED_FINGERPRINTS
+                );
+
+                if ($maxTracked > 0 && count($this->queryMap) >= $maxTracked) {
+                    // Evict the oldest tracked fingerprint (PHP arrays preserve
+                    // insertion order) to keep memory bounded in processes that
+                    // never fire RequestHandled.
+                    array_shift($this->queryMap);
+                }
+
                 $this->queryMap[$fingerprint] = ['count' => 0, 'ids' => []];
             }
 
