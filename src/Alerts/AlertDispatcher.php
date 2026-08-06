@@ -8,6 +8,20 @@ use Illuminate\Support\Facades\Log;
 class AlertDispatcher
 {
     /**
+     * Maximum seconds to wait for a Slack/webhook alert connection to
+     * establish. Alert delivery must never stall the watched
+     * request/job/command it's reporting on, so this is kept short and
+     * bounded rather than left to Guzzle's default of "no timeout at all".
+     */
+    private const CONNECT_TIMEOUT = 2;
+
+    /**
+     * Maximum seconds to wait for the full Slack/webhook alert request
+     * (connect + response) to complete.
+     */
+    private const REQUEST_TIMEOUT = 3;
+
+    /**
      * Dispatch an alert for the given entry if any configured rules match.
      *
      * @param array<mixed> $content
@@ -78,7 +92,7 @@ class AlertDispatcher
         $text = $this->buildMessage($type, $content, $tags);
 
         try {
-            Http::post($url, [
+            Http::connectTimeout(self::CONNECT_TIMEOUT)->timeout(self::REQUEST_TIMEOUT)->post($url, [
                 'text' => $text,
                 'username' => 'Probe | Laravel',
                 'icon_emoji' => ':mag:',
@@ -102,7 +116,7 @@ class AlertDispatcher
         }
 
         try {
-            Http::post($url, [
+            Http::connectTimeout(self::CONNECT_TIMEOUT)->timeout(self::REQUEST_TIMEOUT)->post($url, [
                 'type'    => $type,
                 'tags'    => $tags,
                 'content' => $content,
