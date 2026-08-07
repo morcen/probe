@@ -383,3 +383,46 @@ it('clears the n+1 detection map via resetPerRequestState()', function () {
         event(new QueryExecuted('select * from posts where user_id = ?', [1], 5.0, app('db')->connection()));
     }
 });
+
+it('caps queryMap growth via max_tracked_fingerprints, evicting the oldest fingerprint', function () {
+    config()->set('probe.watchers_config.queries.n1_threshold', 1);
+    config()->set('probe.watchers_config.queries.max_tracked_fingerprints', 2);
+
+    $ids = [];
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->andReturnUsing(function () use (&$ids) {
+        $id = count($ids) + 1;
+        $ids[] = $id;
+        return $id;
+    });
+
+    $tagCalls = [];
+    $storage->shouldReceive('addTagToIds')->andReturnUsing(function (array $ids) use (&$tagCalls) {
+        $tagCalls[] = $ids;
+    });
+
+    $watcher = new QueryWatcher($storage);
+    $watcher->register();
+
+    // Two distinct fingerprints fill the cap of 2 ('a' tracked first, then 'b').
+    event(new QueryExecuted('select * from a', [], 5.0, app('db')->connection())); // id 1
+    event(new QueryExecuted('select * from b', [], 5.0, app('db')->connection())); // id 2
+
+    // A third distinct fingerprint pushes the map over the cap, evicting 'a'.
+    event(new QueryExecuted('select * from c', [], 5.0, app('db')->connection())); // id 3
+
+    // 'a' is queried again. Since it was evicted, this is tracked as a brand
+    // new fingerprint (and evicts 'b') rather than resuming its prior count —
+    // without the cap this would already be 'a''s 2nd occurrence and would
+    // cross the n1 threshold (1) here.
+    event(new QueryExecuted('select * from a', [], 5.0, app('db')->connection())); // id 4
+
+    expect($tagCalls)->toBe([]);
+
+    // A genuine 2nd occurrence of 'a' since its eviction crosses the threshold.
+    event(new QueryExecuted('select * from a', [], 5.0, app('db')->connection())); // id 5
+
+    expect($tagCalls)->toHaveCount(1)
+        ->and($tagCalls[0])->toBe([4, 5]);
+});

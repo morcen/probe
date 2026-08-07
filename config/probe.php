@@ -119,9 +119,14 @@ return [
 
         'queries' => [
             // Queries taking longer than this (ms) are tagged 'slow'.
-            'slow_threshold' => (int) env('PROBE_SLOW_QUERY_MS', 100),
+            'slow_threshold'           => (int) env('PROBE_SLOW_QUERY_MS', 100),
             // Same query fingerprint seen this many times in one request = tagged 'n1'.
-            'n1_threshold'   => (int) env('PROBE_N1_THRESHOLD', 5),
+            'n1_threshold'             => (int) env('PROBE_N1_THRESHOLD', 5),
+            // Maximum number of distinct query fingerprints tracked for N+1
+            // detection before the oldest are evicted. Bounds memory growth
+            // in queue workers and long-running console commands, which
+            // never fire the per-HTTP-request reset. Set 0 to disable the cap.
+            'max_tracked_fingerprints' => (int) env('PROBE_QUERY_MAX_TRACKED_FINGERPRINTS', 1000),
         ],
 
         'exceptions' => [
