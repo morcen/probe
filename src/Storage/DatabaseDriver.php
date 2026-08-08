@@ -9,9 +9,15 @@ class DatabaseDriver implements StorageDriverInterface
 {
     public function store(array $entry): int
     {
+        $content = json_encode($entry['content']);
+
+        if ($content === false) {
+            $content = json_encode(['error' => 'probe_failed_to_encode_entry_content']);
+        }
+
         return (int) DB::table('probe_entries')->insertGetId([
             'type'        => $entry['type'],
-            'content'     => json_encode($entry['content']),
+            'content'     => $content,
             'tags'        => $entry['tags'] ?? null,
             'family_hash' => $entry['family_hash'] ?? null,
             'created_at'  => Carbon::now(),
