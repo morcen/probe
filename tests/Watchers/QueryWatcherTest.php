@@ -326,6 +326,45 @@ it('does not crash on a binding without a __toString method', function () {
         ->toBe("select * from logs where created_at > '[unrepresentable]'");
 });
 
+it('does not mark a normal-sized query as truncated', function () {
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new QueryWatcher($storage);
+    $watcher->register();
+
+    event(new QueryExecuted('select * from users where id = ?', [1], 10.5, app('db')->connection()));
+
+    expect($captured['content']['sql_truncated'])->toBeFalse();
+});
+
+it('caps the stored SQL at 64 KB and flags it as truncated', function () {
+    $captured = null;
+
+    $storage = Mockery::mock(StorageDriverInterface::class);
+    $storage->shouldReceive('store')->once()->andReturnUsing(function (array $entry) use (&$captured) {
+        $captured = $entry;
+        return 1;
+    });
+
+    $watcher = new QueryWatcher($storage);
+    $watcher->register();
+
+    // A single bound value far larger than the 64 KB cap (e.g. a large JSON
+    // blob), which the interpolated SQL would otherwise store in full.
+    $huge = str_repeat('x', 100000);
+
+    event(new QueryExecuted('insert into logs (payload) values (?)', [$huge], 5.0, app('db')->connection()));
+
+    expect(strlen($captured['content']['sql']))->toBe(65536)
+        ->and($captured['content']['sql_truncated'])->toBeTrue();
+});
+
 it('detects n+1 queries and tags entries', function () {
     $ids = [];
 
