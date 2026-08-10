@@ -228,6 +228,10 @@ class ProbeController extends Controller
             $deadline = time() + 60;
 
             while (time() < $deadline) {
+                if (connection_aborted()) {
+                    break;
+                }
+
                 $rows = DB::table('probe_entries')
                     ->where('id', '>', $current)
                     ->orderBy('id')
