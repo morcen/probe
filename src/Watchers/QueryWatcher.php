@@ -22,6 +22,15 @@ class QueryWatcher extends Watcher
      */
     private const DEFAULT_MAX_TRACKED_FINGERPRINTS = 1000;
 
+    /**
+     * Cap on the stored, fully-interpolated SQL string. Bound values can be
+     * arbitrarily large (a JSON document, a base64-encoded file, a long text
+     * column), and unlike every other watcher's payload, this one had no
+     * limit — a single query could otherwise bloat the entries table and
+     * slow the dashboard down loading it back.
+     */
+    private const MAX_SQL_BYTES = 65536; // 64 KB
+
     public function register(): void
     {
         app('events')->listen(QueryExecuted::class, function (QueryExecuted $event) {
@@ -42,7 +51,7 @@ class QueryWatcher extends Watcher
     private function onQuery(QueryExecuted $event): void
     {
         $this->safely(function () use ($event) {
-            $sql         = $this->interpolate($event->sql, $event->bindings);
+            [$sql, $sqlTruncated] = $this->truncateSql($this->interpolate($event->sql, $event->bindings));
             $fingerprint = $this->fingerprint($event->sql);
             $durationMs  = round($event->time, 2);
             $slowMs      = (int) config('probe.watchers_config.queries.slow_threshold', 100);
@@ -58,6 +67,7 @@ class QueryWatcher extends Watcher
                 type: 'queries',
                 content: [
                     'sql'            => $sql,
+                    'sql_truncated'  => $sqlTruncated,
                     'connection'     => $event->connectionName,
                     'duration_ms'    => $durationMs,
                     'bindings_count' => count($event->bindings),
@@ -144,6 +154,21 @@ class QueryWatcher extends Watcher
         }, $sql);
 
         return (string) $sql;
+    }
+
+    /**
+     * Cap the fully-interpolated SQL string to MAX_SQL_BYTES, mirroring the
+     * truncation every other watcher already applies to its payload.
+     *
+     * @return array{string, bool}
+     */
+    private function truncateSql(string $sql): array
+    {
+        if (strlen($sql) > self::MAX_SQL_BYTES) {
+            return [substr($sql, 0, self::MAX_SQL_BYTES), true];
+        }
+
+        return [$sql, false];
     }
 
     /**
