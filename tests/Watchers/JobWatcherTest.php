@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Schema;
 use Morcen\Probe\Storage\DatabaseDriver;
 use Morcen\Probe\Storage\StorageDriverInterface;
 use Morcen\Probe\Watchers\JobWatcher;
+use Morcen\Probe\Watchers\QueryWatcher;
 
 beforeEach(function () {
     config()->set('probe.sampling_rate', 1.0);
@@ -188,6 +189,25 @@ it('redacts sensitive values interpolated into the failure exception message', f
 
     expect($content['status'])->toBe('failed')
         ->and($content['exception'])->toBe('Invalid API token: [redacted]');
+});
+
+it('does not let updateEntry\'s own SELECT/UPDATE get captured by QueryWatcher as a new entry', function () {
+    $storage = new DatabaseDriver();
+
+    $jobWatcher = new JobWatcher($storage);
+    $jobWatcher->register();
+
+    // Registered alongside QueryWatcher, as both are enabled by default —
+    // updateEntry()'s internal SELECT/UPDATE must not be picked up and
+    // stored as spurious 'queries' entries by the watcher below it.
+    $queryWatcher = new QueryWatcher($storage);
+    $queryWatcher->register();
+
+    $job = makeFakeJob('job-10');
+    event(new JobProcessing('redis', $job));
+    event(new JobProcessed('redis', $job));
+
+    expect(DB::table('probe_entries')->pluck('type')->all())->toBe(['jobs']);
 });
 
 it('safely stores an exception message containing quotes and SQL-breaking characters on JobFailed', function () {

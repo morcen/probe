@@ -101,22 +101,24 @@ class ScheduleWatcher extends Watcher
         ?string $output,
         string $command
     ): void {
-        $raw     = \Illuminate\Support\Facades\DB::table('probe_entries')->where('id', $entryId)->value('content');
-        $content = json_decode($raw ?? '', true) ?? [];
+        $this->withoutRecording(function () use ($entryId, $status, $durationMs, $output) {
+            $raw     = \Illuminate\Support\Facades\DB::table('probe_entries')->where('id', $entryId)->value('content');
+            $content = json_decode($raw ?? '', true) ?? [];
 
-        $content['status']      = $status;
-        $content['duration_ms'] = $durationMs;
+            $content['status']      = $status;
+            $content['duration_ms'] = $durationMs;
 
-        if ($output !== null) {
-            $content['output'] = $output;
-        }
+            if ($output !== null) {
+                $content['output'] = $output;
+            }
 
-        \Illuminate\Support\Facades\DB::table('probe_entries')
-            ->where('id', $entryId)
-            ->update([
-                'tags'    => implode(',', ['schedule', $status]),
-                'content' => json_encode($content),
-            ]);
+            \Illuminate\Support\Facades\DB::table('probe_entries')
+                ->where('id', $entryId)
+                ->update([
+                    'tags'    => implode(',', ['schedule', $status]),
+                    'content' => json_encode($content),
+                ]);
+        });
     }
 
     private function captureOutput(string $output): string

@@ -102,11 +102,13 @@ class QueryWatcher extends Watcher
             $this->queryMap[$fingerprint]['ids'][] = $id;
 
             if ($this->queryMap[$fingerprint]['count'] === $n1Threshold + 1) {
-                // Threshold just crossed — back-tag all collected IDs.
-                $this->storage->addTagToIds($this->queryMap[$fingerprint]['ids'], 'n1');
+                // Threshold just crossed — back-tag all collected IDs. Guarded
+                // so the SELECT/UPDATE this issues isn't itself captured and
+                // re-recorded as a new 'queries' entry.
+                $this->withoutRecording(fn () => $this->storage->addTagToIds($this->queryMap[$fingerprint]['ids'], 'n1'));
             } elseif ($this->queryMap[$fingerprint]['count'] > $n1Threshold + 1) {
                 // Already above threshold — tag just this new entry immediately.
-                $this->storage->addTagToIds([$id], 'n1');
+                $this->withoutRecording(fn () => $this->storage->addTagToIds([$id], 'n1'));
             }
         });
     }
