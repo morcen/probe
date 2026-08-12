@@ -114,22 +114,24 @@ class JobWatcher extends Watcher
         ?string $exception,
         string $queue
     ): void {
-        $raw     = \Illuminate\Support\Facades\DB::table('probe_entries')->where('id', $entryId)->value('content');
-        $content = json_decode($raw ?? '', true) ?? [];
+        $this->withoutRecording(function () use ($entryId, $status, $durationMs, $exception, $queue) {
+            $raw     = \Illuminate\Support\Facades\DB::table('probe_entries')->where('id', $entryId)->value('content');
+            $content = json_decode($raw ?? '', true) ?? [];
 
-        $content['status']      = $status;
-        $content['duration_ms'] = $durationMs;
+            $content['status']      = $status;
+            $content['duration_ms'] = $durationMs;
 
-        if ($exception !== null) {
-            $content['exception'] = $exception;
-        }
+            if ($exception !== null) {
+                $content['exception'] = $exception;
+            }
 
-        \Illuminate\Support\Facades\DB::table('probe_entries')
-            ->where('id', $entryId)
-            ->update([
-                'tags'    => implode(',', array_filter(['job', $queue, $status])),
-                'content' => json_encode($content),
-            ]);
+            \Illuminate\Support\Facades\DB::table('probe_entries')
+                ->where('id', $entryId)
+                ->update([
+                    'tags'    => implode(',', array_filter(['job', $queue, $status])),
+                    'content' => json_encode($content),
+                ]);
+        });
     }
 
     /**

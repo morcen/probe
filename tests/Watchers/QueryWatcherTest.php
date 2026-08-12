@@ -1,6 +1,8 @@
 <?php
 
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
+use Morcen\Probe\Storage\DatabaseDriver;
 use Morcen\Probe\Storage\StorageDriverInterface;
 use Morcen\Probe\Watchers\QueryWatcher;
 
@@ -464,4 +466,21 @@ it('caps queryMap growth via max_tracked_fingerprints, evicting the oldest finge
 
     expect($tagCalls)->toHaveCount(1)
         ->and($tagCalls[0])->toBe([4, 5]);
+});
+
+it('does not let its own n1 back-tagging SELECT/UPDATE get captured and re-recorded as a new entry', function () {
+    $watcher = new QueryWatcher(new DatabaseDriver());
+    $watcher->register();
+
+    // Threshold is 3, so the 4th identical query crosses it and triggers a
+    // back-tagging SELECT + UPDATE against the 4 already-stored rows. Left
+    // unguarded, QueryWatcher would capture those as a 5th 'queries' entry,
+    // which would then also cross the threshold once tagging queries repeat,
+    // feeding back into itself indefinitely.
+    for ($i = 0; $i < 4; $i++) {
+        event(new QueryExecuted('select * from posts where user_id = ?', [1], 5.0, app('db')->connection()));
+    }
+
+    expect(DB::table('probe_entries')->count())->toBe(4)
+        ->and(DB::table('probe_entries')->where('tags', 'like', '%n1%')->count())->toBe(4);
 });

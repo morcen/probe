@@ -91,6 +91,28 @@ abstract class Watcher
     }
 
     /**
+     * Run a follow-up storage read/write (e.g. JobWatcher/ScheduleWatcher
+     * finalizing an entry, or QueryWatcher back-tagging N+1 ids) with the
+     * same recursion guard record() uses around its own store() call, so
+     * these housekeeping queries aren't picked up and re-recorded as new
+     * entries by another watcher (e.g. QueryWatcher capturing them).
+     */
+    protected function withoutRecording(callable $fn): mixed
+    {
+        if (self::$recording) {
+            return $fn();
+        }
+
+        self::$recording = true;
+
+        try {
+            return $fn();
+        } finally {
+            self::$recording = false;
+        }
+    }
+
+    /**
      * Dispatch alerts for this entry if rules are configured.
      *
      * @param array<mixed> $content

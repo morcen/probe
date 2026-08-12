@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Morcen\Probe\Storage\DatabaseDriver;
 use Morcen\Probe\Storage\StorageDriverInterface;
+use Morcen\Probe\Watchers\QueryWatcher;
 use Morcen\Probe\Watchers\ScheduleWatcher;
 
 beforeEach(function () {
@@ -71,6 +72,25 @@ it('safely stores task output containing quotes and SQL-breaking characters on S
         ->and($content['output'])->toBe("'); DROP TABLE probe_entries; --");
 
     expect(DB::table('probe_entries')->count())->toBe(1);
+});
+
+it('does not let finalizeEntry\'s own SELECT/UPDATE get captured by QueryWatcher as a new entry', function () {
+    $storage = new DatabaseDriver();
+
+    $scheduleWatcher = new ScheduleWatcher($storage);
+    $scheduleWatcher->register();
+
+    // Registered alongside QueryWatcher, as both are enabled by default —
+    // finalizeEntry()'s internal SELECT/UPDATE must not be picked up and
+    // stored as spurious 'queries' entries by the watcher below it.
+    $queryWatcher = new QueryWatcher($storage);
+    $queryWatcher->register();
+
+    $task = makeFakeScheduledTask('mutex-8');
+    event(new ScheduledTaskStarting($task));
+    event(new ScheduledTaskFinished($task, 1.23));
+
+    expect(DB::table('probe_entries')->pluck('type')->all())->toBe(['schedule']);
 });
 
 it('does not let a database failure inside finalizeEntry crash the host application', function () {
