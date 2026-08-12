@@ -27,7 +27,40 @@ abstract class Watcher
     {
     }
 
-    private static bool $recording = false;
+    /**
+     * Keyed by recordingKey() so that concurrent coroutines (Octane/Swoole)
+     * each get their own guard slot instead of sharing a single process-wide
+     * flag. See recordingKey() for details.
+     *
+     * @var array<int, bool>
+     */
+    private static array $recording = [];
+
+    /**
+     * The guard key for the currently executing request/coroutine.
+     *
+     * Under classic, synchronous PHP-FPM there is exactly one request per
+     * process at a time, so a single shared key (0) is safe and behaves
+     * exactly like the old process-wide flag. Under Laravel Octane's Swoole
+     * driver, a single worker process can interleave multiple requests as
+     * coroutines — whenever one yields on I/O (e.g. the DB insert inside
+     * store(), or an HTTP call inside alert dispatch), Swoole can schedule a
+     * different request's coroutine in the same process. Keying the guard by
+     * the active coroutine id keeps each request's recursion guard isolated
+     * so one request's in-flight store() can never suppress another's entry.
+     */
+    private static function recordingKey(): int
+    {
+        if (class_exists(\Swoole\Coroutine::class, false)) {
+            $cid = \Swoole\Coroutine::getCid();
+
+            if ($cid > 0) {
+                return $cid;
+            }
+        }
+
+        return 0;
+    }
 
     /**
      * Persist an entry, respecting the configured sampling rate.
@@ -42,7 +75,9 @@ abstract class Watcher
         array $tags = [],
         ?string $familyHash = null
     ): int {
-        if (self::$recording) {
+        $key = self::recordingKey();
+
+        if (self::$recording[$key] ?? false) {
             return 0;
         }
 
@@ -52,7 +87,7 @@ abstract class Watcher
             return 0;
         }
 
-        self::$recording = true;
+        self::$recording[$key] = true;
 
         try {
             try {
@@ -69,7 +104,7 @@ abstract class Watcher
 
             $this->alert($type, $content, $tags);
         } finally {
-            self::$recording = false;
+            unset(self::$recording[$key]);
         }
 
         return $id;
@@ -99,16 +134,18 @@ abstract class Watcher
      */
     protected function withoutRecording(callable $fn): mixed
     {
-        if (self::$recording) {
+        $key = self::recordingKey();
+
+        if (self::$recording[$key] ?? false) {
             return $fn();
         }
 
-        self::$recording = true;
+        self::$recording[$key] = true;
 
         try {
             return $fn();
         } finally {
-            self::$recording = false;
+            unset(self::$recording[$key]);
         }
     }
 
