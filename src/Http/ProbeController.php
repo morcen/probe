@@ -221,7 +221,11 @@ class ProbeController extends Controller
      */
     public function stream(Request $request): \Symfony\Component\HttpFoundation\StreamedResponse
     {
-        $lastId = (int) $request->query('last_id', 0);
+        // A reconnecting EventSource sends the last event id it saw back via the
+        // Last-Event-ID header per the SSE spec, so honor that ahead of the
+        // last_id query param (which the bundled dashboard client never sets)
+        // to avoid replaying the entire probe_entries history on every reconnect.
+        $lastId = (int) ($request->header('Last-Event-ID') ?? $request->query('last_id', 0));
 
         return response()->stream(function () use ($lastId) {
             $current  = $lastId;
