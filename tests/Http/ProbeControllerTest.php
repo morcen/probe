@@ -38,3 +38,20 @@ it('clamps a negative per_page instead of dumping the entire table unpaginated',
     $response->assertJsonPath('per_page', 1);
     expect($response->json('data'))->toHaveCount(1);
 });
+
+it('returns 404 instead of a 500 TypeError for a non-numeric entry id', function () {
+    app()->instance('probe.auth', fn ($request) => true);
+
+    $response = $this->getJson('/probe/api/entries/abc');
+
+    $response->assertNotFound();
+});
+
+it('returns 404 for a missing but numeric entry id', function () {
+    app()->instance('probe.auth', fn ($request) => true);
+
+    $response = $this->getJson('/probe/api/entries/999999');
+
+    $response->assertNotFound();
+    $response->assertJsonPath('error', 'Entry not found');
+});
