@@ -125,7 +125,7 @@ class ProbeServiceProvider extends ServiceProvider
             Route::prefix('api')->group(function () {
                 // Core data
                 Route::get('/entries',       [ProbeController::class, 'entries'])->name('probe.entries');
-                Route::get('/entries/{id}',  [ProbeController::class, 'show'])->name('probe.entry');
+                Route::get('/entries/{id}',  [ProbeController::class, 'show'])->name('probe.entry')->whereNumber('id');
                 Route::get('/stats',         [ProbeController::class, 'stats'])->name('probe.stats');
 
                 // Real-time
