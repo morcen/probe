@@ -34,6 +34,10 @@ class DatabaseDriver implements StorageDriverInterface
             ->whereIn('id', $ids)
             ->get(['id', 'tags']);
 
+        $cases    = [];
+        $bindings = [];
+        $idsToTag = [];
+
         foreach ($rows as $row) {
             $existing = $row->tags ? explode(',', $row->tags) : [];
 
@@ -43,10 +47,25 @@ class DatabaseDriver implements StorageDriverInterface
 
             $existing[] = $tag;
 
-            DB::table('probe_entries')
-                ->where('id', $row->id)
-                ->update(['tags' => implode(',', $existing)]);
+            $cases[]    = 'WHEN ? THEN ?';
+            $bindings[] = $row->id;
+            $bindings[] = implode(',', $existing);
+            $idsToTag[] = $row->id;
         }
+
+        if (empty($idsToTag)) {
+            return;
+        }
+
+        // A single CASE-based UPDATE instead of one query per row, so back-tagging
+        // an N+1 batch costs one query regardless of how many ids need tagging.
+        $table        = DB::getTablePrefix() . 'probe_entries';
+        $placeholders = implode(',', array_fill(0, count($idsToTag), '?'));
+
+        DB::update(
+            "UPDATE {$table} SET tags = CASE id " . implode(' ', $cases) . ' END WHERE id IN (' . $placeholders . ')',
+            array_merge($bindings, $idsToTag)
+        );
     }
 
     public function prune(): void
