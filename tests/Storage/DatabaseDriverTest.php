@@ -34,3 +34,86 @@ it('falls back to a placeholder instead of corrupting the entry when content fai
     expect($content)->toBeArray()
         ->and($content)->toBe(['error' => 'probe_failed_to_encode_entry_content']);
 });
+
+it('does nothing when addTagToIds is called with an empty id list', function () {
+    $driver = new DatabaseDriver();
+
+    DB::enableQueryLog();
+
+    $driver->addTagToIds([], 'n1');
+
+    expect(DB::getQueryLog())->toBeEmpty();
+});
+
+it('appends a tag to each id in a single batched update', function () {
+    $driver = new DatabaseDriver();
+
+    $ids = collect(range(1, 5))->map(fn () => $driver->store([
+        'type'    => 'queries',
+        'content' => ['sql' => 'select * from posts'],
+        'tags'    => 'query',
+    ]))->all();
+
+    DB::enableQueryLog();
+
+    $driver->addTagToIds($ids, 'n1');
+
+    // One SELECT to fetch existing tags, one UPDATE to write them all back —
+    // regardless of how many ids are being tagged.
+    expect(DB::getQueryLog())->toHaveCount(2);
+
+    foreach ($ids as $id) {
+        $tags = explode(',', DB::table('probe_entries')->find($id)->tags);
+        expect($tags)->toContain('query')->toContain('n1');
+    }
+});
+
+it('does not duplicate a tag that an id already has', function () {
+    $driver = new DatabaseDriver();
+
+    $id = $driver->store([
+        'type'    => 'queries',
+        'content' => ['sql' => 'select * from posts'],
+        'tags'    => 'query,n1',
+    ]);
+
+    $driver->addTagToIds([$id], 'n1');
+
+    $tags = explode(',', DB::table('probe_entries')->find($id)->tags);
+
+    expect(array_count_values($tags)['n1'])->toBe(1);
+});
+
+it('only updates ids that are missing the tag, leaving already-tagged rows untouched', function () {
+    $driver = new DatabaseDriver();
+
+    $alreadyTagged = $driver->store([
+        'type'    => 'queries',
+        'content' => ['sql' => 'select * from posts'],
+        'tags'    => 'query,n1',
+    ]);
+
+    $needsTagging = $driver->store([
+        'type'    => 'queries',
+        'content' => ['sql' => 'select * from posts'],
+        'tags'    => 'query',
+    ]);
+
+    $driver->addTagToIds([$alreadyTagged, $needsTagging], 'n1');
+
+    expect(DB::table('probe_entries')->find($alreadyTagged)->tags)->toBe('query,n1')
+        ->and(explode(',', DB::table('probe_entries')->find($needsTagging)->tags))->toContain('n1');
+});
+
+it('adds a tag to an entry that has no existing tags', function () {
+    $driver = new DatabaseDriver();
+
+    $id = $driver->store([
+        'type'    => 'queries',
+        'content' => ['sql' => 'select * from posts'],
+    ]);
+
+    $driver->addTagToIds([$id], 'n1');
+
+    expect(DB::table('probe_entries')->find($id)->tags)->toBe('n1');
+});
