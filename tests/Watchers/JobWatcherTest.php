@@ -3,6 +3,7 @@
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Queue\Events\JobReleasedAfterException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Morcen\Probe\Storage\DatabaseDriver;
@@ -158,6 +159,41 @@ it('redacts sensitive constructor properties from a real serialized job command 
     expect($decoded)->toBeArray()
         ->and($decoded['email'])->toBe('user@example.com')
         ->and($decoded['token'])->toBe('[redacted]');
+});
+
+it('updates the entry to released on JobReleasedAfterException, instead of leaving it stuck as processing', function () {
+    $watcher = new JobWatcher(new DatabaseDriver());
+    $watcher->register();
+
+    $job = makeFakeJob('job-11');
+    event(new JobProcessing('redis', $job));
+    event(new JobReleasedAfterException('redis', $job, 30));
+
+    $row     = DB::table('probe_entries')->where('type', 'jobs')->first();
+    $content = json_decode($row->content, true);
+
+    expect($content['status'])->toBe('released')
+        ->and($content['duration_ms'])->toBeFloat()
+        ->and($row->tags)->toBe('job,default,released');
+});
+
+it('finalizes the released entry and tracks the retry attempt as a fresh entry, not a stale overwrite', function () {
+    $watcher = new JobWatcher(new DatabaseDriver());
+    $watcher->register();
+
+    $job = makeFakeJob('job-12');
+    event(new JobProcessing('redis', $job));
+    event(new JobReleasedAfterException('redis', $job, 30));
+
+    // Laravel re-dispatches the same job id on retry for database/redis queues.
+    event(new JobProcessing('redis', $job));
+    event(new JobProcessed('redis', $job));
+
+    $rows = DB::table('probe_entries')->where('type', 'jobs')->orderBy('id')->get();
+
+    expect($rows)->toHaveCount(2)
+        ->and(json_decode($rows[0]->content, true)['status'])->toBe('released')
+        ->and(json_decode($rows[1]->content, true)['status'])->toBe('completed');
 });
 
 it('does not let a database failure inside updateEntry crash the host application', function () {

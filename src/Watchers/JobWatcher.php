@@ -5,6 +5,7 @@ namespace Morcen\Probe\Watchers;
 use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\Events\JobProcessed;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Queue\Events\JobReleasedAfterException;
 
 class JobWatcher extends Watcher
 {
@@ -27,6 +28,10 @@ class JobWatcher extends Watcher
 
         app('events')->listen(JobFailed::class, function (JobFailed $event) {
             $this->onFailed($event);
+        });
+
+        app('events')->listen(JobReleasedAfterException::class, function (JobReleasedAfterException $event) {
+            $this->onReleased($event);
         });
     }
 
@@ -103,6 +108,23 @@ class JobWatcher extends Watcher
                 $event->job->getQueue()
             );
 
+            unset($this->jobs[$jobId]);
+        });
+    }
+
+    private function onReleased(JobReleasedAfterException $event): void
+    {
+        $this->safely(function () use ($event) {
+            $jobId = (string) $event->job->getJobId();
+
+            if (! isset($this->jobs[$jobId])) {
+                return;
+            }
+
+            $meta       = $this->jobs[$jobId];
+            $durationMs = round((microtime(true) - $meta['started_at']) * 1000, 2);
+
+            $this->updateEntry($meta['entry_id'], 'released', $durationMs, null, $event->job->getQueue());
             unset($this->jobs[$jobId]);
         });
     }
