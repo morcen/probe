@@ -2,6 +2,7 @@
 
 namespace Morcen\Probe\Http;
 
+use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -36,7 +37,7 @@ class ProbeController extends Controller
         }
 
         if ($tag) {
-            $query->where('tags', 'LIKE', "%{$tag}%");
+            $this->whereHasTag($query, $tag);
         }
 
         if ($search) {
@@ -127,9 +128,11 @@ class ProbeController extends Controller
      */
     public function slowQueries(): JsonResponse
     {
-        $rows = DB::table('probe_entries')
-            ->where('type', 'queries')
-            ->where('tags', 'LIKE', '%slow%')
+        $query = DB::table('probe_entries')
+            ->where('type', 'queries');
+        $this->whereHasTag($query, 'slow');
+
+        $rows = $query
             ->selectRaw('family_hash, count(*) as occurrences, max(created_at) as last_seen, min(content) as sample')
             ->groupBy('family_hash')
             ->orderByDesc('occurrences')
@@ -155,9 +158,11 @@ class ProbeController extends Controller
      */
     public function n1Report(): JsonResponse
     {
-        $rows = DB::table('probe_entries')
-            ->where('type', 'queries')
-            ->where('tags', 'LIKE', '%n1%')
+        $query = DB::table('probe_entries')
+            ->where('type', 'queries');
+        $this->whereHasTag($query, 'n1');
+
+        $rows = $query
             ->selectRaw('family_hash, count(*) as total_executions, min(content) as sample')
             ->groupBy('family_hash')
             ->orderByDesc('total_executions')
@@ -277,6 +282,22 @@ class ProbeController extends Controller
             'Cache-Control'     => 'no-cache',
             'X-Accel-Buffering' => 'no',
         ]);
+    }
+
+    /**
+     * Constrain the query to entries whose comma-separated `tags` column
+     * contains an exact match for the given tag, rather than a raw substring
+     * anywhere in the column — a plain `LIKE "%{$tag}%"` would also match,
+     * e.g., a tag of "highest" when filtering for "high".
+     */
+    private function whereHasTag(Builder $query, string $tag): void
+    {
+        $query->where(function (Builder $q) use ($tag) {
+            $q->where('tags', $tag)
+                ->orWhere('tags', 'LIKE', "{$tag},%")
+                ->orWhere('tags', 'LIKE', "%,{$tag}")
+                ->orWhere('tags', 'LIKE', "%,{$tag},%");
+        });
     }
 
     /**
