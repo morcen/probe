@@ -55,3 +55,99 @@ it('returns 404 for a missing but numeric entry id', function () {
     $response->assertNotFound();
     $response->assertJsonPath('error', 'Entry not found');
 });
+
+it('filters entries by exact tag match instead of a raw substring', function () {
+    app()->instance('probe.auth', fn ($request) => true);
+
+    DB::table('probe_entries')->insert([
+        'type'       => 'requests',
+        'content'    => json_encode(['method' => 'GET']),
+        'tags'       => 'high',
+        'created_at' => now(),
+    ]);
+
+    DB::table('probe_entries')->insert([
+        'type'       => 'requests',
+        'content'    => json_encode(['method' => 'GET']),
+        'tags'       => 'highest',
+        'created_at' => now(),
+    ]);
+
+    $response = $this->getJson('/probe/api/entries?tag=high');
+
+    $response->assertOk();
+    expect($response->json('data'))->toHaveCount(1);
+    expect($response->json('data.0.tags'))->toContain('high');
+});
+
+it('matches a tag anywhere in the comma-separated tags list', function () {
+    app()->instance('probe.auth', fn ($request) => true);
+
+    DB::table('probe_entries')->insert([
+        'type'       => 'jobs',
+        'content'    => json_encode(['name' => 'SendEmail']),
+        'tags'       => 'default,high,completed',
+        'created_at' => now(),
+    ]);
+
+    $response = $this->getJson('/probe/api/entries?tag=high');
+
+    $response->assertOk();
+    expect($response->json('data'))->toHaveCount(1);
+});
+
+it('excludes a query whose tags merely contain "slow" as a substring from the slow queries report', function () {
+    app()->instance('probe.auth', fn ($request) => true);
+
+    DB::table('probe_entries')->insert([
+        'type'        => 'queries',
+        'content'     => json_encode(['sql' => 'select * from users', 'duration_ms' => 5]),
+        'tags'        => 'slowdown-candidate',
+        'family_hash' => 'hash-not-slow',
+        'created_at'  => now(),
+    ]);
+
+    DB::table('probe_entries')->insert([
+        'type'        => 'queries',
+        'content'     => json_encode(['sql' => 'select * from posts', 'duration_ms' => 500]),
+        'tags'        => 'slow',
+        'family_hash' => 'hash-slow',
+        'created_at'  => now(),
+    ]);
+
+    $response = $this->getJson('/probe/api/queries/slow');
+
+    $response->assertOk();
+    $hashes = collect($response->json())->pluck('family_hash');
+
+    expect($hashes)->toContain('hash-slow');
+    expect($hashes)->not->toContain('hash-not-slow');
+});
+
+it('excludes a query whose tags merely contain "n1" as a substring from the N+1 report', function () {
+    app()->instance('probe.auth', fn ($request) => true);
+
+    DB::table('probe_entries')->insert([
+        'type'        => 'queries',
+        'content'     => json_encode(['sql' => 'select * from posts']),
+        'tags'        => 'gen1-batch',
+        'family_hash' => 'hash-not-n1',
+        'created_at'  => now(),
+    ]);
+
+    DB::table('probe_entries')->insert([
+        'type'        => 'queries',
+        'content'     => json_encode(['sql' => 'select * from comments']),
+        'tags'        => 'n1',
+        'family_hash' => 'hash-n1',
+        'created_at'  => now(),
+    ]);
+
+    $response = $this->getJson('/probe/api/queries/n1');
+
+    $response->assertOk();
+    $hashes = collect($response->json())->pluck('family_hash');
+
+    expect($hashes)->toContain('hash-n1');
+    expect($hashes)->not->toContain('hash-not-n1');
+});
