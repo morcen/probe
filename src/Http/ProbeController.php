@@ -102,23 +102,26 @@ class ProbeController extends Controller
         $groups = DB::table('probe_entries')
             ->where('type', 'exceptions')
             ->whereNotNull('family_hash')
-            ->selectRaw('family_hash, count(*) as occurrences, max(created_at) as last_seen, min(content) as sample')
+            ->selectRaw('family_hash, count(*) as occurrences, max(created_at) as last_seen, max(id) as latest_id')
             ->groupBy('family_hash')
             ->orderByDesc('occurrences')
             ->limit(100)
-            ->get()
-            ->map(function (object $row): array {
-                $content = json_decode($row->sample, true) ?? [];
-                return [
-                    'family_hash'  => $row->family_hash,
-                    'occurrences'  => $row->occurrences,
-                    'last_seen'    => $row->last_seen,
-                    'class'        => $content['class'] ?? 'Unknown',
-                    'message'      => $content['message'] ?? '',
-                    'file'         => $content['file'] ?? '',
-                    'line'         => $content['line'] ?? 0,
-                ];
-            });
+            ->get();
+
+        $samples = $this->latestSamples($groups->pluck('latest_id'));
+
+        $groups = $groups->map(function (object $row) use ($samples): array {
+            $content = json_decode($samples[$row->latest_id] ?? null, true) ?? [];
+            return [
+                'family_hash'  => $row->family_hash,
+                'occurrences'  => $row->occurrences,
+                'last_seen'    => $row->last_seen,
+                'class'        => $content['class'] ?? 'Unknown',
+                'message'      => $content['message'] ?? '',
+                'file'         => $content['file'] ?? '',
+                'line'         => $content['line'] ?? 0,
+            ];
+        });
 
         return response()->json($groups);
     }
@@ -133,22 +136,25 @@ class ProbeController extends Controller
         $this->whereHasTag($query, 'slow');
 
         $rows = $query
-            ->selectRaw('family_hash, count(*) as occurrences, max(created_at) as last_seen, min(content) as sample')
+            ->selectRaw('family_hash, count(*) as occurrences, max(created_at) as last_seen, max(id) as latest_id')
             ->groupBy('family_hash')
             ->orderByDesc('occurrences')
             ->limit(50)
-            ->get()
-            ->map(function (object $row): array {
-                $content = json_decode($row->sample, true) ?? [];
-                return [
-                    'family_hash'  => $row->family_hash,
-                    'occurrences'  => $row->occurrences,
-                    'last_seen'    => $row->last_seen,
-                    'sql'          => $content['sql'] ?? '',
-                    'duration_ms'  => $content['duration_ms'] ?? null,
-                    'connection'   => $content['connection'] ?? 'default',
-                ];
-            });
+            ->get();
+
+        $samples = $this->latestSamples($rows->pluck('latest_id'));
+
+        $rows = $rows->map(function (object $row) use ($samples): array {
+            $content = json_decode($samples[$row->latest_id] ?? null, true) ?? [];
+            return [
+                'family_hash'  => $row->family_hash,
+                'occurrences'  => $row->occurrences,
+                'last_seen'    => $row->last_seen,
+                'sql'          => $content['sql'] ?? '',
+                'duration_ms'  => $content['duration_ms'] ?? null,
+                'connection'   => $content['connection'] ?? 'default',
+            ];
+        });
 
         return response()->json($rows);
     }
@@ -163,20 +169,23 @@ class ProbeController extends Controller
         $this->whereHasTag($query, 'n1');
 
         $rows = $query
-            ->selectRaw('family_hash, count(*) as total_executions, min(content) as sample')
+            ->selectRaw('family_hash, count(*) as total_executions, max(id) as latest_id')
             ->groupBy('family_hash')
             ->orderByDesc('total_executions')
             ->limit(50)
-            ->get()
-            ->map(function (object $row): array {
-                $content = json_decode($row->sample, true) ?? [];
-                return [
-                    'family_hash'       => $row->family_hash,
-                    'total_executions'  => $row->total_executions,
-                    'sql'               => $content['sql'] ?? '',
-                    'connection'        => $content['connection'] ?? 'default',
-                ];
-            });
+            ->get();
+
+        $samples = $this->latestSamples($rows->pluck('latest_id'));
+
+        $rows = $rows->map(function (object $row) use ($samples): array {
+            $content = json_decode($samples[$row->latest_id] ?? null, true) ?? [];
+            return [
+                'family_hash'       => $row->family_hash,
+                'total_executions'  => $row->total_executions,
+                'sql'               => $content['sql'] ?? '',
+                'connection'        => $content['connection'] ?? 'default',
+            ];
+        });
 
         return response()->json($rows);
     }
@@ -298,6 +307,27 @@ class ProbeController extends Controller
                 ->orWhere('tags', 'LIKE', "%,{$tag}")
                 ->orWhere('tags', 'LIKE', "%,{$tag},%");
         });
+    }
+
+    /**
+     * Fetch the raw `content` column for a set of row ids, keyed by id.
+     *
+     * Used to hydrate a grouped report's "sample" from the exact row a
+     * `max(id)` aggregate identified as the group's most recent entry,
+     * rather than an independent `min(content)`/`max(created_at)` pick
+     * that can each resolve to a different physical row.
+     */
+    private function latestSamples(\Illuminate\Support\Collection $ids): \Illuminate\Support\Collection
+    {
+        $ids = $ids->filter()->unique();
+
+        if ($ids->isEmpty()) {
+            return collect();
+        }
+
+        return DB::table('probe_entries')
+            ->whereIn('id', $ids)
+            ->pluck('content', 'id');
     }
 
     /**
