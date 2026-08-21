@@ -2,6 +2,7 @@
 
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Morcen\Probe\Alerts\AlertDispatcher;
 
 // AlertDispatcher must never let a slow/unreachable Slack or webhook
@@ -73,4 +74,45 @@ it('does not let a timed-out webhook alert crash the host application', function
     (new AlertDispatcher())->dispatch('jobs', ['name' => 'SendInvoice'], []);
 
     expect(true)->toBeTrue();
+});
+
+it('logs the alert as-is when the channel is explicitly "log"', function () {
+    Log::shouldReceive('warning')->once()->with(Mockery::pattern('/^\[Probe alert\] /'), Mockery::type('array'));
+    Http::shouldReceive('post')->never();
+
+    config()->set('probe.alerts', [
+        ['types' => ['queries'], 'tags' => ['slow'], 'channel' => 'log'],
+    ]);
+
+    (new AlertDispatcher())->dispatch('queries', ['sql' => 'select * from users'], ['slow']);
+});
+
+it('normalizes a differently-cased channel instead of treating it as unsupported', function () {
+    Http::shouldReceive('connectTimeout')->once()->with(2)->andReturnSelf();
+    Http::shouldReceive('timeout')->once()->with(3)->andReturnSelf();
+    Http::shouldReceive('post')
+        ->once()
+        ->with('https://hooks.slack.test/abc', Mockery::type('array'))
+        ->andReturn(null);
+    Log::shouldReceive('warning')->never();
+
+    config()->set('probe.alerts', [
+        ['types' => ['exceptions'], 'channel' => 'Slack', 'url' => 'https://hooks.slack.test/abc'],
+    ]);
+
+    (new AlertDispatcher())->dispatch('exceptions', ['class' => 'RuntimeException', 'message' => 'boom'], []);
+});
+
+it('warns and falls back to the log channel for an unsupported channel value', function () {
+    Http::shouldReceive('post')->never();
+    Log::shouldReceive('warning')
+        ->once()
+        ->with(Mockery::pattern('/^\[Probe\] Unsupported alert channel "slak" configured for a "exceptions" rule; falling back to the "log" channel\.$/'));
+    Log::shouldReceive('warning')->once()->with(Mockery::pattern('/^\[Probe alert\] /'), Mockery::type('array'));
+
+    config()->set('probe.alerts', [
+        ['types' => ['exceptions'], 'channel' => 'slak', 'url' => 'https://hooks.slack.test/abc'],
+    ]);
+
+    (new AlertDispatcher())->dispatch('exceptions', ['class' => 'RuntimeException', 'message' => 'boom'], []);
 });
