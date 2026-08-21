@@ -108,8 +108,11 @@ return [
 
         'requests' => [
             // Paths to skip recording. Supports * wildcard. e.g. 'probe/*', 'health'
+            // The dashboard's own path is derived from PROBE_PATH so that the
+            // ignore rule always tracks wherever the dashboard is mounted,
+            // rather than assuming the default 'probe' prefix.
             'ignore_paths'        => [
-                'probe/*',
+                rtrim(env('PROBE_PATH', 'probe'), '/') . '/*',
                 '_ignition/*',
                 'telescope/*',
             ],
