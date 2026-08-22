@@ -40,7 +40,14 @@ class AlertDispatcher
                 continue;
             }
 
-            $channel = $rule['channel'] ?? 'log';
+            $channel = strtolower((string) ($rule['channel'] ?? 'log'));
+
+            if (! in_array($channel, ['slack', 'webhook', 'log'], true)) {
+                Log::warning('[Probe] Unsupported alert channel "' . ($rule['channel'] ?? '')
+                    . '" configured for a "' . $type . '" rule; falling back to the "log" channel.');
+
+                $channel = 'log';
+            }
 
             match ($channel) {
                 'slack'   => $this->sendSlack($rule, $type, $content, $tags),
