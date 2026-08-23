@@ -12,6 +12,16 @@ it('renders the dashboard without loading Tailwind or Alpine.js from a third-par
     $response->assertDontSee('cdn.jsdelivr.net', false);
 });
 
+it('debounces the SSE-triggered dashboard refresh instead of refetching on every matching event', function () {
+    app()->instance('probe.auth', fn ($request) => true);
+
+    $response = $this->get('/probe');
+
+    $response->assertOk();
+    $response->assertSee('scheduleRefresh()', false);
+    $response->assertSee('this.scheduleRefresh();', false);
+});
+
 it('clamps per_page=0 to a minimum instead of throwing DivisionByZeroError', function () {
     app()->instance('probe.auth', fn ($request) => true);
 

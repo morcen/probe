@@ -242,6 +242,8 @@ function probeApp() {
         streaming: false,
         stats: {},
         currentPage: 1,
+        refreshTimer: null,
+        loadRequestId: 0,
 
         navItems: [
             { type: 'requests',   label: 'Requests',   icon: '🌐' },
@@ -279,9 +281,15 @@ function probeApp() {
             if (this.search)    params.set('search', this.search);
             if (this.tagFilter) params.set('tag', this.tagFilter);
 
+            // Tag this call so a slower, older response can't clobber a
+            // newer one that already resolved (e.g. a burst of SSE-triggered
+            // refreshes racing each other).
+            const requestId = ++this.loadRequestId;
+
             try {
                 const res  = await fetch(`/${base}/api/entries?${params}`);
                 const data = await res.json();
+                if (requestId !== this.loadRequestId) return;
                 this.entries    = data.data;
                 this.pagination = {
                     current_page: data.current_page,
@@ -289,8 +297,15 @@ function probeApp() {
                     total:        data.total,
                 };
             } finally {
-                this.loading = false;
+                if (requestId === this.loadRequestId) this.loading = false;
             }
+        },
+
+        // Coalesce bursts of SSE-triggered refreshes into a single
+        // loadEntries() call instead of firing one per matching event.
+        scheduleRefresh() {
+            clearTimeout(this.refreshTimer);
+            this.refreshTimer = setTimeout(() => this.loadEntries(), 400);
         },
 
         async selectEntry(id) {
@@ -327,8 +342,9 @@ function probeApp() {
                     return;
                 }
                 this.stats[entry.type] = (this.stats[entry.type] ?? 0) + 1;
-                // Prepend to list without refetching (best-effort).
-                this.loadEntries();
+                // Prepend to list without refetching (best-effort), debounced
+                // so a burst of matching events triggers at most one refetch.
+                this.scheduleRefresh();
             };
         },
 
