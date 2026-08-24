@@ -22,6 +22,17 @@ it('debounces the SSE-triggered dashboard refresh instead of refetching on every
     $response->assertSee('this.scheduleRefresh();', false);
 });
 
+it('resets pagination to page 1 when the search input or tag filter changes', function () {
+    app()->instance('probe.auth', fn ($request) => true);
+
+    $response = $this->get('/probe');
+
+    $response->assertOk();
+    $response->assertSee('@input="applyFilters()"', false);
+    $response->assertSee('@change="applyFilters()"', false);
+    $response->assertSee('this.currentPage = 1;', false);
+});
+
 it('clamps per_page=0 to a minimum instead of throwing DivisionByZeroError', function () {
     app()->instance('probe.auth', fn ($request) => true);
 

@@ -74,14 +74,14 @@
         <header class="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-4 py-2 flex items-center gap-3">
             <input
                 x-model.debounce.400ms="search"
-                @input="loadEntries()"
+                @input="applyFilters()"
                 type="text"
                 placeholder="Search entries…"
                 class="flex-1 text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 rounded px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-probe-500"
             >
             <select
                 x-model="tagFilter"
-                @change="loadEntries()"
+                @change="applyFilters()"
                 class="text-sm border border-gray-200 dark:border-gray-700 dark:bg-gray-800 rounded px-2 py-1.5"
             >
                 <option value="">All tags</option>
@@ -268,6 +268,13 @@ function probeApp() {
             this.tagFilter = '';
             this.detail = null;
             this.selectedId = null;
+            this.loadEntries();
+        },
+
+        // Changing what's being filtered on invalidates whatever page the
+        // user was previously on, so jump back to page 1 before reloading.
+        applyFilters() {
+            this.currentPage = 1;
             this.loadEntries();
         },
 
