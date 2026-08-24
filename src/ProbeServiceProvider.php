@@ -52,7 +52,10 @@ class ProbeServiceProvider extends ServiceProvider
 
         $this->app->singleton(StorageDriverInterface::class, function () {
             return match (config('probe.storage_driver', 'database')) {
-                default => new DatabaseDriver(),
+                'database' => new DatabaseDriver(),
+                default => throw new \InvalidArgumentException(
+                    'Unsupported probe.storage_driver: ' . config('probe.storage_driver')
+                ),
             };
         });
 
