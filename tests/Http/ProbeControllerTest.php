@@ -77,6 +77,98 @@ it('returns 404 for a missing but numeric entry id', function () {
     $response->assertJsonPath('error', 'Entry not found');
 });
 
+it('returns the full detail of an existing entry', function () {
+    app()->instance('probe.auth', fn ($request) => true);
+
+    $id = DB::table('probe_entries')->insertGetId([
+        'type'        => 'requests',
+        'content'     => json_encode(['method' => 'GET', 'uri' => '/users']),
+        'tags'        => 'request,get',
+        'family_hash' => 'hash-abc',
+        'created_at'  => now(),
+    ]);
+
+    $response = $this->getJson("/probe/api/entries/{$id}");
+
+    $response->assertOk();
+    $response->assertJsonPath('id', $id);
+    $response->assertJsonPath('type', 'requests');
+    $response->assertJsonPath('family_hash', 'hash-abc');
+    $response->assertJsonPath('tags', ['request', 'get']);
+    $response->assertJsonPath('content.method', 'GET');
+    $response->assertJsonPath('content.uri', '/users');
+});
+
+it('returns entry counts grouped by type', function () {
+    app()->instance('probe.auth', fn ($request) => true);
+
+    DB::table('probe_entries')->insert([
+        ['type' => 'requests', 'content' => json_encode([]), 'created_at' => now()],
+        ['type' => 'requests', 'content' => json_encode([]), 'created_at' => now()],
+        ['type' => 'exceptions', 'content' => json_encode([]), 'created_at' => now()],
+    ]);
+
+    $response = $this->getJson('/probe/api/stats');
+
+    $response->assertOk();
+    $response->assertJsonPath('requests', 2);
+    $response->assertJsonPath('exceptions', 1);
+});
+
+it('exports all entries as a downloadable JSON array', function () {
+    app()->instance('probe.auth', fn ($request) => true);
+
+    DB::table('probe_entries')->insert([
+        'type'        => 'requests',
+        'content'     => json_encode(['method' => 'GET']),
+        'tags'        => 'request',
+        'family_hash' => 'hash-1',
+        'created_at'  => now(),
+    ]);
+
+    DB::table('probe_entries')->insert([
+        'type'       => 'exceptions',
+        'content'    => json_encode(['class' => 'RuntimeException']),
+        'created_at' => now(),
+    ]);
+
+    $response = $this->get('/probe/api/export');
+
+    $response->assertOk();
+    $response->assertHeader('Content-Type', 'application/json');
+
+    $rows = json_decode($response->streamedContent(), true);
+
+    expect($rows)->toHaveCount(2);
+    // orderByDesc('id'), so the exceptions row (inserted second) comes first.
+    expect(collect($rows)->pluck('type')->all())->toBe(['exceptions', 'requests']);
+});
+
+it('filters the export by type', function () {
+    app()->instance('probe.auth', fn ($request) => true);
+
+    DB::table('probe_entries')->insert([
+        'type'       => 'requests',
+        'content'    => json_encode(['method' => 'GET']),
+        'created_at' => now(),
+    ]);
+
+    DB::table('probe_entries')->insert([
+        'type'       => 'exceptions',
+        'content'    => json_encode(['class' => 'RuntimeException']),
+        'created_at' => now(),
+    ]);
+
+    $response = $this->get('/probe/api/export?type=exceptions');
+
+    $response->assertOk();
+
+    $rows = json_decode($response->streamedContent(), true);
+
+    expect($rows)->toHaveCount(1);
+    expect($rows[0]['type'])->toBe('exceptions');
+});
+
 it('filters entries by exact tag match instead of a raw substring', function () {
     app()->instance('probe.auth', fn ($request) => true);
 

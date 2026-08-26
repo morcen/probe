@@ -76,4 +76,43 @@ namespace {
             ->not->toContain('id: 1')
             ->not->toContain('id: 2');
     });
+
+    it('emits at most 20 rows per poll iteration instead of the entire backlog at once', function () {
+        app()->instance('probe.auth', fn ($request) => true);
+
+        foreach (range(1, 25) as $i) {
+            DB::table('probe_entries')->insert([
+                'type'       => 'requests',
+                'content'    => json_encode(['index' => $i]),
+                'created_at' => now(),
+            ]);
+        }
+
+        // Same one-poll-then-abort trick as above, so a single iteration's
+        // output can be inspected without blocking on the 60s deadline.
+        ProbeControllerStreamTestState::$abortAfterCalls = 1;
+
+        $response = $this->get('/probe/api/stream');
+        $content  = $response->streamedContent();
+
+        preg_match_all('/^id: (\d+)$/m', $content, $matches);
+
+        expect($matches[1])->toHaveCount(20)
+            ->and($matches[1])->toContain('20')
+            ->and($matches[1])->not->toContain('21');
+    });
+
+    it('emits a keepalive comment instead of polling output when there are no new rows', function () {
+        app()->instance('probe.auth', fn ($request) => true);
+
+        // Aborting on the second connection_aborted() check lets the loop run
+        // one full "no rows" iteration — which sleeps 3s before looping back
+        // — without blocking on the 60s deadline.
+        ProbeControllerStreamTestState::$abortAfterCalls = 1;
+
+        $response = $this->get('/probe/api/stream');
+        $content  = $response->streamedContent();
+
+        expect($content)->toBe(": keepalive\n\n");
+    });
 }
