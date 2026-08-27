@@ -117,3 +117,78 @@ it('adds a tag to an entry that has no existing tags', function () {
 
     expect(DB::table('probe_entries')->find($id)->tags)->toBe('n1');
 });
+
+it('prunes entries older than the configured TTL for a given type', function () {
+    config()->set('probe.pruning', ['requests' => 7]);
+
+    $driver = new DatabaseDriver();
+
+    $oldId = DB::table('probe_entries')->insertGetId([
+        'type'       => 'requests',
+        'content'    => json_encode(['method' => 'GET']),
+        'created_at' => now()->subDays(10),
+    ]);
+
+    $recentId = DB::table('probe_entries')->insertGetId([
+        'type'       => 'requests',
+        'content'    => json_encode(['method' => 'GET']),
+        'created_at' => now()->subDays(1),
+    ]);
+
+    $driver->prune();
+
+    expect(DB::table('probe_entries')->find($oldId))->toBeNull();
+    expect(DB::table('probe_entries')->find($recentId))->not->toBeNull();
+});
+
+it('does not prune a type whose TTL is configured as null', function () {
+    config()->set('probe.pruning', ['exceptions' => null]);
+
+    $driver = new DatabaseDriver();
+
+    $id = DB::table('probe_entries')->insertGetId([
+        'type'       => 'exceptions',
+        'content'    => json_encode(['class' => 'RuntimeException']),
+        'created_at' => now()->subYears(5),
+    ]);
+
+    $driver->prune();
+
+    expect(DB::table('probe_entries')->find($id))->not->toBeNull();
+});
+
+it('only prunes entries of the configured type, leaving other types untouched', function () {
+    config()->set('probe.pruning', ['requests' => 7]);
+
+    $driver = new DatabaseDriver();
+
+    $oldRequest = DB::table('probe_entries')->insertGetId([
+        'type'       => 'requests',
+        'content'    => json_encode(['method' => 'GET']),
+        'created_at' => now()->subDays(10),
+    ]);
+
+    $oldException = DB::table('probe_entries')->insertGetId([
+        'type'       => 'exceptions',
+        'content'    => json_encode(['class' => 'RuntimeException']),
+        'created_at' => now()->subDays(10),
+    ]);
+
+    $driver->prune();
+
+    expect(DB::table('probe_entries')->find($oldRequest))->toBeNull();
+    expect(DB::table('probe_entries')->find($oldException))->not->toBeNull();
+});
+
+it('clears every entry from storage regardless of type', function () {
+    $driver = new DatabaseDriver();
+
+    $driver->store(['type' => 'requests', 'content' => ['method' => 'GET']]);
+    $driver->store(['type' => 'exceptions', 'content' => ['class' => 'RuntimeException']]);
+
+    expect(DB::table('probe_entries')->count())->toBe(2);
+
+    $driver->clear();
+
+    expect(DB::table('probe_entries')->count())->toBe(0);
+});
