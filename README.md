@@ -2,7 +2,6 @@
 
 A debugging and observability package for Laravel applications. Probe records requests, exceptions, queries, jobs, cache operations, and scheduled tasks — then surfaces them in a real-time dashboard.
 
-![Probe Dashboard](docs/images/dashboard-placeholder.png)
 *Dashboard screenshot — coming soon*
 
 ---
