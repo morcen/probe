@@ -11,6 +11,11 @@ A debugging and observability package for Laravel applications. Probe records re
 - PHP 8.2+
 - Laravel 10, 11, or 12
 
+> **Note:** Laravel 10 and 11 are end-of-life and carry known, unpatched
+> security advisories upstream. Probe itself remains compatible with them,
+> but running your application on an EOL Laravel version means you are
+> responsible for those advisories — upgrading to Laravel 12 is recommended.
+
 ## Installation
 
 ```bash
