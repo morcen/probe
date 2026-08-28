@@ -172,19 +172,21 @@ it('filters the export by type', function () {
 it('filters entries by exact tag match instead of a raw substring', function () {
     app()->instance('probe.auth', fn ($request) => true);
 
-    DB::table('probe_entries')->insert([
+    $highId = DB::table('probe_entries')->insertGetId([
         'type'       => 'requests',
         'content'    => json_encode(['method' => 'GET']),
         'tags'       => 'high',
         'created_at' => now(),
     ]);
+    DB::table('probe_entry_tags')->insert(['entry_id' => $highId, 'tag' => 'high']);
 
-    DB::table('probe_entries')->insert([
+    $highestId = DB::table('probe_entries')->insertGetId([
         'type'       => 'requests',
         'content'    => json_encode(['method' => 'GET']),
         'tags'       => 'highest',
         'created_at' => now(),
     ]);
+    DB::table('probe_entry_tags')->insert(['entry_id' => $highestId, 'tag' => 'highest']);
 
     $response = $this->getJson('/probe/api/entries?tag=high');
 
@@ -196,11 +198,16 @@ it('filters entries by exact tag match instead of a raw substring', function () 
 it('matches a tag anywhere in the comma-separated tags list', function () {
     app()->instance('probe.auth', fn ($request) => true);
 
-    DB::table('probe_entries')->insert([
+    $id = DB::table('probe_entries')->insertGetId([
         'type'       => 'jobs',
         'content'    => json_encode(['name' => 'SendEmail']),
         'tags'       => 'default,high,completed',
         'created_at' => now(),
+    ]);
+    DB::table('probe_entry_tags')->insert([
+        ['entry_id' => $id, 'tag' => 'default'],
+        ['entry_id' => $id, 'tag' => 'high'],
+        ['entry_id' => $id, 'tag' => 'completed'],
     ]);
 
     $response = $this->getJson('/probe/api/entries?tag=high');
@@ -212,21 +219,23 @@ it('matches a tag anywhere in the comma-separated tags list', function () {
 it('excludes a query whose tags merely contain "slow" as a substring from the slow queries report', function () {
     app()->instance('probe.auth', fn ($request) => true);
 
-    DB::table('probe_entries')->insert([
+    $notSlowId = DB::table('probe_entries')->insertGetId([
         'type'        => 'queries',
         'content'     => json_encode(['sql' => 'select * from users', 'duration_ms' => 5]),
         'tags'        => 'slowdown-candidate',
         'family_hash' => 'hash-not-slow',
         'created_at'  => now(),
     ]);
+    DB::table('probe_entry_tags')->insert(['entry_id' => $notSlowId, 'tag' => 'slowdown-candidate']);
 
-    DB::table('probe_entries')->insert([
+    $slowId = DB::table('probe_entries')->insertGetId([
         'type'        => 'queries',
         'content'     => json_encode(['sql' => 'select * from posts', 'duration_ms' => 500]),
         'tags'        => 'slow',
         'family_hash' => 'hash-slow',
         'created_at'  => now(),
     ]);
+    DB::table('probe_entry_tags')->insert(['entry_id' => $slowId, 'tag' => 'slow']);
 
     $response = $this->getJson('/probe/api/queries/slow');
 
@@ -240,21 +249,23 @@ it('excludes a query whose tags merely contain "slow" as a substring from the sl
 it('excludes a query whose tags merely contain "n1" as a substring from the N+1 report', function () {
     app()->instance('probe.auth', fn ($request) => true);
 
-    DB::table('probe_entries')->insert([
+    $notN1Id = DB::table('probe_entries')->insertGetId([
         'type'        => 'queries',
         'content'     => json_encode(['sql' => 'select * from posts']),
         'tags'        => 'gen1-batch',
         'family_hash' => 'hash-not-n1',
         'created_at'  => now(),
     ]);
+    DB::table('probe_entry_tags')->insert(['entry_id' => $notN1Id, 'tag' => 'gen1-batch']);
 
-    DB::table('probe_entries')->insert([
+    $n1Id = DB::table('probe_entries')->insertGetId([
         'type'        => 'queries',
         'content'     => json_encode(['sql' => 'select * from comments']),
         'tags'        => 'n1',
         'family_hash' => 'hash-n1',
         'created_at'  => now(),
     ]);
+    DB::table('probe_entry_tags')->insert(['entry_id' => $n1Id, 'tag' => 'n1']);
 
     $response = $this->getJson('/probe/api/queries/n1');
 
@@ -297,21 +308,23 @@ it('pairs the exceptionGroups sample with the row that produced the reported las
 it('pairs the slowQueries sample with the row that produced the reported last_seen, not an unrelated min(content) row', function () {
     app()->instance('probe.auth', fn ($request) => true);
 
-    DB::table('probe_entries')->insert([
+    $oldId = DB::table('probe_entries')->insertGetId([
         'type'        => 'queries',
         'content'     => json_encode(['sql' => 'AAA slow query, old occurrence', 'duration_ms' => 500]),
         'tags'        => 'slow',
         'family_hash' => 'hash-slow-report',
         'created_at'  => now()->subMinute(),
     ]);
+    DB::table('probe_entry_tags')->insert(['entry_id' => $oldId, 'tag' => 'slow']);
 
-    DB::table('probe_entries')->insert([
+    $newId = DB::table('probe_entries')->insertGetId([
         'type'        => 'queries',
         'content'     => json_encode(['sql' => 'ZZZ slow query, new occurrence', 'duration_ms' => 800]),
         'tags'        => 'slow',
         'family_hash' => 'hash-slow-report',
         'created_at'  => now(),
     ]);
+    DB::table('probe_entry_tags')->insert(['entry_id' => $newId, 'tag' => 'slow']);
 
     $response = $this->getJson('/probe/api/queries/slow');
 
@@ -324,21 +337,23 @@ it('pairs the slowQueries sample with the row that produced the reported last_se
 it('pairs the n1Report sample with the most recent occurrence, not an unrelated min(content) row', function () {
     app()->instance('probe.auth', fn ($request) => true);
 
-    DB::table('probe_entries')->insert([
+    $oldId = DB::table('probe_entries')->insertGetId([
         'type'        => 'queries',
         'content'     => json_encode(['sql' => 'AAA n1 query, old occurrence']),
         'tags'        => 'n1',
         'family_hash' => 'hash-n1-report',
         'created_at'  => now()->subMinute(),
     ]);
+    DB::table('probe_entry_tags')->insert(['entry_id' => $oldId, 'tag' => 'n1']);
 
-    DB::table('probe_entries')->insert([
+    $newId = DB::table('probe_entries')->insertGetId([
         'type'        => 'queries',
         'content'     => json_encode(['sql' => 'ZZZ n1 query, new occurrence']),
         'tags'        => 'n1',
         'family_hash' => 'hash-n1-report',
         'created_at'  => now(),
     ]);
+    DB::table('probe_entry_tags')->insert(['entry_id' => $newId, 'tag' => 'n1']);
 
     $response = $this->getJson('/probe/api/queries/n1');
 

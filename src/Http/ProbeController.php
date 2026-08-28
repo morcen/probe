@@ -294,18 +294,16 @@ class ProbeController extends Controller
     }
 
     /**
-     * Constrain the query to entries whose comma-separated `tags` column
-     * contains an exact match for the given tag, rather than a raw substring
-     * anywhere in the column — a plain `LIKE "%{$tag}%"` would also match,
-     * e.g., a tag of "highest" when filtering for "high".
+     * Constrain the query to entries with an exact match for the given tag,
+     * via the indexed `probe_entry_tags` lookup table rather than a
+     * leading-wildcard `LIKE` scan over the comma-separated `tags` column
+     * (which also can't use a standard index and, unanchored, would match
+     * e.g. a tag of "highest" when filtering for "high").
      */
     private function whereHasTag(Builder $query, string $tag): void
     {
-        $query->where(function (Builder $q) use ($tag) {
-            $q->where('tags', $tag)
-                ->orWhere('tags', 'LIKE', "{$tag},%")
-                ->orWhere('tags', 'LIKE', "%,{$tag}")
-                ->orWhere('tags', 'LIKE', "%,{$tag},%");
+        $query->whereIn('id', function (Builder $q) use ($tag) {
+            $q->select('entry_id')->from('probe_entry_tags')->where('tag', $tag);
         });
     }
 

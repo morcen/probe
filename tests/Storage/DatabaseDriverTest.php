@@ -1,7 +1,35 @@
 <?php
 
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Morcen\Probe\Storage\DatabaseDriver;
+
+it('backfills probe_entry_tags from an existing install\'s comma-separated tags on migrate', function () {
+    // Simulate an existing install upgrading: entries with tags already
+    // stored, but no probe_entry_tags rows for them yet.
+    Schema::dropIfExists('probe_entry_tags');
+
+    $taggedId = DB::table('probe_entries')->insertGetId([
+        'type'       => 'requests',
+        'content'    => json_encode(['method' => 'GET']),
+        'tags'       => 'high,slow,slow',
+        'created_at' => now(),
+    ]);
+
+    $untaggedId = DB::table('probe_entries')->insertGetId([
+        'type'       => 'requests',
+        'content'    => json_encode(['method' => 'GET']),
+        'tags'       => null,
+        'created_at' => now(),
+    ]);
+
+    (require __DIR__ . '/../../database/migrations/2026_08_28_000000_create_probe_entry_tags_table.php')->up();
+
+    $tags = DB::table('probe_entry_tags')->where('entry_id', $taggedId)->pluck('tag')->sort()->values()->all();
+
+    expect($tags)->toBe(['high', 'slow']);
+    expect(DB::table('probe_entry_tags')->where('entry_id', $untaggedId)->exists())->toBeFalse();
+});
 
 it('stores an entry with valid content as-is', function () {
     $driver = new DatabaseDriver();
@@ -35,6 +63,21 @@ it('falls back to a placeholder instead of corrupting the entry when content fai
         ->and($content)->toBe(['error' => 'probe_failed_to_encode_entry_content']);
 });
 
+it('populates the indexed probe_entry_tags lookup table for each tag on store', function () {
+    $driver = new DatabaseDriver();
+
+    $id = $driver->store([
+        'type'    => 'requests',
+        'content' => ['method' => 'GET'],
+        'tags'    => 'request,get,get',
+    ]);
+
+    $tags = DB::table('probe_entry_tags')->where('entry_id', $id)->pluck('tag')->sort()->values()->all();
+
+    // Deduplicated: the repeated "get" tag produces one row, not two.
+    expect($tags)->toBe(['get', 'request']);
+});
+
 it('does nothing when addTagToIds is called with an empty id list', function () {
     $driver = new DatabaseDriver();
 
@@ -58,13 +101,16 @@ it('appends a tag to each id in a single batched update', function () {
 
     $driver->addTagToIds($ids, 'n1');
 
-    // One SELECT to fetch existing tags, one UPDATE to write them all back —
-    // regardless of how many ids are being tagged.
-    expect(DB::getQueryLog())->toHaveCount(2);
+    // One SELECT to fetch existing tags, one UPDATE to write them all back,
+    // one batched insert into probe_entry_tags — regardless of how many ids
+    // are being tagged.
+    expect(DB::getQueryLog())->toHaveCount(3);
 
     foreach ($ids as $id) {
         $tags = explode(',', DB::table('probe_entries')->find($id)->tags);
         expect($tags)->toContain('query')->toContain('n1');
+
+        expect(DB::table('probe_entry_tags')->where('entry_id', $id)->where('tag', 'n1')->exists())->toBeTrue();
     }
 });
 
@@ -180,6 +226,30 @@ it('only prunes entries of the configured type, leaving other types untouched', 
     expect(DB::table('probe_entries')->find($oldException))->not->toBeNull();
 });
 
+it('removes probe_entry_tags rows for a pruned entry, leaving other entries\' tags untouched', function () {
+    config()->set('probe.pruning', ['requests' => 7]);
+
+    $driver = new DatabaseDriver();
+
+    $oldId = $driver->store([
+        'type'    => 'requests',
+        'content' => ['method' => 'GET'],
+        'tags'    => 'slow',
+    ]);
+    DB::table('probe_entries')->where('id', $oldId)->update(['created_at' => now()->subDays(10)]);
+
+    $recentId = $driver->store([
+        'type'    => 'requests',
+        'content' => ['method' => 'GET'],
+        'tags'    => 'slow',
+    ]);
+
+    $driver->prune();
+
+    expect(DB::table('probe_entry_tags')->where('entry_id', $oldId)->exists())->toBeFalse();
+    expect(DB::table('probe_entry_tags')->where('entry_id', $recentId)->exists())->toBeTrue();
+});
+
 it('clears every entry from storage regardless of type', function () {
     $driver = new DatabaseDriver();
 
@@ -191,4 +261,16 @@ it('clears every entry from storage regardless of type', function () {
     $driver->clear();
 
     expect(DB::table('probe_entries')->count())->toBe(0);
+});
+
+it('clears probe_entry_tags along with every entry', function () {
+    $driver = new DatabaseDriver();
+
+    $driver->store(['type' => 'requests', 'content' => ['method' => 'GET'], 'tags' => 'request,get']);
+
+    expect(DB::table('probe_entry_tags')->count())->toBe(2);
+
+    $driver->clear();
+
+    expect(DB::table('probe_entry_tags')->count())->toBe(0);
 });
