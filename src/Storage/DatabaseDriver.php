@@ -15,13 +15,19 @@ class DatabaseDriver implements StorageDriverInterface
             $content = json_encode(['error' => 'probe_failed_to_encode_entry_content']);
         }
 
-        return (int) DB::table('probe_entries')->insertGetId([
+        $tags = $entry['tags'] ?? null;
+
+        $id = (int) DB::table('probe_entries')->insertGetId([
             'type'        => $entry['type'],
             'content'     => $content,
-            'tags'        => $entry['tags'] ?? null,
+            'tags'        => $tags,
             'family_hash' => $entry['family_hash'] ?? null,
             'created_at'  => Carbon::now(),
         ]);
+
+        $this->syncTagRows($id, $tags ? explode(',', $tags) : []);
+
+        return $id;
     }
 
     public function addTagToIds(array $ids, string $tag): void
@@ -66,6 +72,30 @@ class DatabaseDriver implements StorageDriverInterface
             "UPDATE {$table} SET tags = CASE id " . implode(' ', $cases) . ' END WHERE id IN (' . $placeholders . ')',
             array_merge($bindings, $idsToTag)
         );
+
+        DB::table('probe_entry_tags')->insertOrIgnore(
+            array_map(fn (int $id) => ['entry_id' => $id, 'tag' => $tag], $idsToTag)
+        );
+    }
+
+    /**
+     * Keep probe_entry_tags — the indexed lookup table whereHasTag() queries
+     * against — in sync with the tags a row was just given. insertOrIgnore()
+     * makes this safe to call with a tag a row already has.
+     *
+     * @param string[] $tags
+     */
+    private function syncTagRows(int $entryId, array $tags): void
+    {
+        $tags = array_values(array_filter(array_unique($tags)));
+
+        if (empty($tags)) {
+            return;
+        }
+
+        DB::table('probe_entry_tags')->insertOrIgnore(
+            array_map(fn (string $tag) => ['entry_id' => $entryId, 'tag' => $tag], $tags)
+        );
     }
 
     public function prune(): void
@@ -77,15 +107,29 @@ class DatabaseDriver implements StorageDriverInterface
                 continue;
             }
 
+            $cutoff = Carbon::now()->subDays((int) $days);
+
+            // probe_entry_tags.entry_id has no foreign-key-independent TTL of
+            // its own, so its rows for a pruned entry must be removed here
+            // rather than relying on cascadeOnDelete() alone — not every
+            // database/driver combination enforces FK constraints.
+            DB::table('probe_entry_tags')->whereIn('entry_id', function ($query) use ($type, $cutoff) {
+                $query->select('id')
+                    ->from('probe_entries')
+                    ->where('type', $type)
+                    ->where('created_at', '<', $cutoff);
+            })->delete();
+
             DB::table('probe_entries')
                 ->where('type', $type)
-                ->where('created_at', '<', Carbon::now()->subDays((int) $days))
+                ->where('created_at', '<', $cutoff)
                 ->delete();
         }
     }
 
     public function clear(): void
     {
+        DB::table('probe_entry_tags')->truncate();
         DB::table('probe_entries')->truncate();
     }
 }
